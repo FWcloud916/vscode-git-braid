@@ -66,7 +66,11 @@ export interface CommitDetail {
 }
 
 /**
- * Fetch full detail for a single commit by OID hex string.
+ * Fetch full commit detail for a single commit by OID hex string.
+ *
+ * `oid_hex` is the full 40-character hex SHA-1.
+ * Returns author/committer name, email, timestamps, full message, and the
+ * list of files changed vs the first parent (tree-diff; rename detection off).
  *
  * @param repoPath — absolute path to the git worktree or `.git` directory.
  * @param oidHex   — full 40-character hex OID.
@@ -75,6 +79,13 @@ export declare function getCommitDetail(repoPath: string, oidHex: string): Commi
 
 /**
  * Read the raw bytes of a git blob by OID hex string.
+ *
+ * Returns the blob's raw bytes as a `Buffer`.
+ * If `oid_hex` is an empty string, returns an empty `Buffer` — this is the
+ * convention for the "missing side" of an addition or deletion in the diff
+ * view (so the `gitbraid:` content provider can serve an empty document).
+ *
+ * The read path is gitoxide-only — no `git` subprocess is spawned.
  *
  * @param repoPath — absolute path to the git worktree or `.git` directory.
  * @param oidHex   — full 40-character hex OID, or `""` for the missing side of

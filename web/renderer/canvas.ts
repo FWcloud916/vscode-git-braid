@@ -292,9 +292,14 @@ export class CanvasRenderer {
     const cw = this._container.clientWidth;
     const ch = this._container.clientHeight;
 
+    // Safety clamp: Chromium refuses canvas contexts beyond ~16k px per side.
+    // In normal operation ch is the viewport height (~800px), so this is inert.
+    // If a layout bug balloons clientHeight this prevents canvas context loss.
+    const MAX_CANVAS_PX = 8192;
+
     // Physical backing-store dimensions.
-    this._canvas.width  = Math.round(cw * dpr);
-    this._canvas.height = Math.round(ch * dpr);
+    this._canvas.width  = Math.min(Math.round(cw * dpr), MAX_CANVAS_PX);
+    this._canvas.height = Math.min(Math.round(ch * dpr), MAX_CANVAS_PX);
 
     // CSS dimensions match container viewport.
     this._canvas.style.width  = `${cw}px`;

@@ -201,8 +201,12 @@ function init(): void {
   app.appendChild(graphWrapper);
 
   // The CanvasRenderer's scroll viewport fills the wrapper.
+  // NOTE: CanvasRenderer's constructor overwrites `position` to "relative", so we
+  // cannot rely on absolute offsets for sizing. Use width/height:100% instead — the
+  // wrapper's overflow:hidden ensures graphPane never escapes the viewport box, and
+  // the renderer's overflow:auto handles scrolling internally.
   const graphPane = document.createElement("div");
-  graphPane.style.cssText = "position:absolute; top:0; left:0; right:0; bottom:0;";
+  graphPane.style.cssText = "width:100%; height:100%;";
   graphWrapper.appendChild(graphPane);
 
   // ── Find bar overlay (position:absolute inside graphWrapper — always visible
