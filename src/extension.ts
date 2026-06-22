@@ -14,6 +14,7 @@
 
 import * as vscode from "vscode";
 import { WebviewBridge } from "./webviewBridge";
+import { GitBraidContentProvider } from "./diffProvider";
 
 let bridge: WebviewBridge | undefined;
 
@@ -48,6 +49,16 @@ export function activate(context: vscode.ExtensionContext): void {
       bridge = undefined;
     });
   });
+
+  // Register the `gitbraid:` content provider once, for the lifetime of the
+  // extension. The provider serves blob content to VS Code's built-in diff
+  // viewer via gitoxide (no `git` subprocess).
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(
+      "gitbraid",
+      new GitBraidContentProvider(),
+    ),
+  );
 
   context.subscriptions.push(openGraph);
 }

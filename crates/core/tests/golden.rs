@@ -312,21 +312,65 @@ fn invariant_boundary_continuation() {
 #[test]
 fn shared_second_parent_lane_gets_straight() {
     // OIDs
-    let m: [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x0a; o };
-    let a: [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x0b; o };
-    let b: [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x0c; o };
-    let c: [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x0d; o };
+    let m: [u8; 20] = {
+        let mut o = [0u8; 20];
+        o[0] = 0x0a;
+        o
+    };
+    let a: [u8; 20] = {
+        let mut o = [0u8; 20];
+        o[0] = 0x0b;
+        o
+    };
+    let b: [u8; 20] = {
+        let mut o = [0u8; 20];
+        o[0] = 0x0c;
+        o
+    };
+    let c: [u8; 20] = {
+        let mut o = [0u8; 20];
+        o[0] = 0x0d;
+        o
+    };
     // Offscreen parents — referenced but not in this window.
-    let m_prev:  [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x10; o };
-    let a_prev:  [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x11; o };
-    let b_prev:  [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x12; o };
-    let c_prev:  [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x13; o };
+    let m_prev: [u8; 20] = {
+        let mut o = [0u8; 20];
+        o[0] = 0x10;
+        o
+    };
+    let a_prev: [u8; 20] = {
+        let mut o = [0u8; 20];
+        o[0] = 0x11;
+        o
+    };
+    let b_prev: [u8; 20] = {
+        let mut o = [0u8; 20];
+        o[0] = 0x12;
+        o
+    };
+    let c_prev: [u8; 20] = {
+        let mut o = [0u8; 20];
+        o[0] = 0x13;
+        o
+    };
 
     let commits = vec![
-        CommitIn { oid: a, parents: smallvec![a_prev, m] },
-        CommitIn { oid: b, parents: smallvec![b_prev, m] },
-        CommitIn { oid: c, parents: smallvec![c_prev, m] },
-        CommitIn { oid: m, parents: smallvec![m_prev] },
+        CommitIn {
+            oid: a,
+            parents: smallvec![a_prev, m],
+        },
+        CommitIn {
+            oid: b,
+            parents: smallvec![b_prev, m],
+        },
+        CommitIn {
+            oid: c,
+            parents: smallvec![c_prev, m],
+        },
+        CommitIn {
+            oid: m,
+            parents: smallvec![m_prev],
+        },
     ];
 
     let (rows, _) = git_braid_core::layout::layout(&commits, None);
@@ -346,9 +390,9 @@ fn shared_second_parent_lane_gets_straight() {
     // Rows 1 and 2 (B, C) come after the lane exists; they point their second
     // parent at the EXISTING lane, so M's lane must receive a Straight in each.
     let straight_on_m_lane = |row: &RowLayout| {
-        row.segments.iter().any(|s| {
-            s.kind == SegKind::Straight && s.from_lane == m_lane && s.to_lane == m_lane
-        })
+        row.segments
+            .iter()
+            .any(|s| s.kind == SegKind::Straight && s.from_lane == m_lane && s.to_lane == m_lane)
     };
     assert!(
         straight_on_m_lane(&rows[1]),

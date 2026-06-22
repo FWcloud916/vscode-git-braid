@@ -4,7 +4,40 @@
 
 ---
 
-## Current milestone: M2 — Canvas virtualised renderer
+## Current milestone: M3 — Commit detail / diff / refs / find
+
+**Goal:** Click a commit → see metadata, ref chips, changed files, and diffs.
+
+**Status:** 🔄 In progress (Slice 1 ✅, Slice 2 ✅, Slices 3–4 🔲)
+
+### M3 Slice 1 — refs + metadata (BRAI v2) + selection + detail panel
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `crates/core/src/model.rs` — `CommitMeta`, `RefLabel`, `RefKind` types | ✅ | |
+| `crates/core/src/walk.rs` — captures refs + per-row metadata | ✅ | Two-pass to avoid borrow-checker conflict |
+| `crates/core/src/serialize.rs` — BRAI v2 (20-byte header, 56-byte CommitRow, RefRow table, StringPool) | ✅ | 11 round-trip tests |
+| `bindings/napi/src/lib.rs` — `get_commit_detail` RPC | ✅ | |
+| `src/webviewBridge.ts` — `selectCommit` / `commitDetail` round-trip | ✅ | |
+| `web/renderer/decode.ts` — BRAI v2 decoder | ✅ | Ref chips, subject, author, commitTime |
+| `web/renderer/canvas.ts` — selection highlight, ref chips, subject text, click handler | ✅ | |
+| `web/index.ts` — detail panel DOM, `showDetail()` | ✅ | |
+| **Bug fix** `crates/core/src/layout.rs` — shared-parent lane missing Straight | ✅ | Regression test added |
+
+### M3 Slice 2 — changed-file list + VS Code built-in diff
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `Cargo.toml` — enable `blob-diff` gix feature | ✅ | Enables `Tree::changes()` API |
+| `bindings/napi/src/lib.rs` — `FileChange` struct, `files` in `CommitDetail`, `get_blob` | ✅ | Tree-diff via gitoxide; rename detection OFF |
+| `src/diffProvider.ts` — `gitbraid:` `TextDocumentContentProvider` | ✅ | Serves blob bytes via `get_blob`; no `git` subprocess |
+| `src/extension.ts` — register content provider | ✅ | Registered once on `activate()` |
+| `src/webviewBridge.ts` — `openDiff` message → `vscode.diff` | ✅ | |
+| `web/index.ts` — render changed-file list, click-to-diff | ✅ | A/M/D badges, delegated click listener |
+
+---
+
+## Previous milestone: M2 — Canvas virtualised renderer
 
 **Goal:** Webview paints the commit graph; native scroll + incremental paging.
 
@@ -53,7 +86,7 @@
 | **M0** | Rust core: log walk + topo sort → CLI print | 3–5 days | ✅ |
 | **M1** | Layout algorithm + napi binding → host gets layout | 1 week | ✅ |
 | **M2 ⚑** | Canvas virtualised renderer → **MVP demo** | 3–5 days | ✅ |
-| M3 | Commit detail / diff / refs / find | 2–3 weeks | 🔲 |
+| M3 | Commit detail / diff / refs / find | 2–3 weeks | 🔄 S1+S2 done |
 | M4 | Write ops + context menu | 3–4 weeks | 🔲 |
 | M5 | First AI feature (release-notes generation) | 2 weeks | 🔲 |
 | M6 | Marketplace publish (preview) | — | 🔲 |
@@ -83,4 +116,4 @@ Git Graph + VS Code built-in, stop here.
 
 ---
 
-_Updated: 2026-06-22 · M2 complete → M3 next (commit detail / diff / refs / find)_
+_Updated: 2026-06-22 · M3 Slice 1 + 2 complete — refs/metadata/detail panel + file-list/diff_

@@ -58,6 +58,16 @@ interface CommitDetailPayload {
   committerEmail: string;
   commitTime: number;
   message: string;
+  /** Files changed vs first parent. Sorted by path. */
+  files: FileChangePayload[];
+}
+
+/** A single file-level change, mirroring the Rust `FileChange` napi object. */
+interface FileChangePayload {
+  path: string;
+  status: string;   // "A" | "M" | "D"
+  oldOid: string;
+  newOid: string;
 }
 
 function formatDate(epochSeconds: number): string {
@@ -76,8 +86,43 @@ function firstLine(s: string): string {
   return s.split("\n")[0] ?? s;
 }
 
+/** Colour for the status badge (A/M/D). */
+function statusColor(s: string): string {
+  if (s === "A") return "var(--vscode-gitDecoration-addedResourceForeground,#73c991)";
+  if (s === "D") return "var(--vscode-gitDecoration-deletedResourceForeground,#f14c4c)";
+  return "var(--vscode-gitDecoration-modifiedResourceForeground,#e2c08d)";
+}
+
+/** Render a single file row for the changed-files list. */
+function fileRowHtml(f: FileChangePayload): string {
+  const slashIdx = f.path.lastIndexOf("/");
+  const dir = slashIdx >= 0 ? escHtml(f.path.slice(0, slashIdx + 1)) : "";
+  const base = escHtml(f.path.slice(slashIdx + 1));
+  const color = statusColor(f.status);
+  return `<div class="gb-file-row"
+    data-path="${escHtml(f.path)}"
+    data-old-oid="${escHtml(f.oldOid)}"
+    data-new-oid="${escHtml(f.newOid)}"
+    data-status="${escHtml(f.status)}"
+    style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;
+           border-radius:3px;user-select:none;"
+    onmouseover="this.style.background='var(--vscode-list-hoverBackground,rgba(255,255,255,.07))'"
+    onmouseout="this.style.background=''">
+    <span style="font-size:10px;font-weight:bold;color:${color};min-width:12px;">${escHtml(f.status)}</span>
+    <span style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+      ${dir ? `<span style="color:var(--vscode-descriptionForeground,#888);">${dir}</span>` : ""}<span style="color:var(--vscode-foreground,#ccc);">${base}</span>
+    </span>
+  </div>`;
+}
+
 function showDetail(pane: HTMLElement, d: CommitDetailPayload): void {
   pane.style.display = "block";
+
+  const filesSection =
+    d.files.length === 0
+      ? `<div style="color:var(--vscode-descriptionForeground,#888);font-size:11px;padding:4px 0;">No file changes</div>`
+      : `<div id="gb-files-list">${d.files.map(fileRowHtml).join("")}</div>`;
+
   pane.innerHTML = `
     <div style="margin-bottom:12px;">
       <div style="font-size:13px;font-weight:bold;margin-bottom:6px;word-break:break-all;">
@@ -101,9 +146,30 @@ function showDetail(pane: HTMLElement, d: CommitDetailPayload): void {
           <td>${d.parents.map(p => `<code>${escHtml(p.slice(0, 12))}</code>`).join(", ")}</td></tr>` : ""}
     </table>
     <hr style="border:none;border-top:1px solid var(--vscode-panel-border,#444);margin:8px 0;">
+    <div style="font-size:11px;font-weight:600;margin-bottom:4px;color:var(--vscode-foreground,#ccc);">
+      Files (${d.files.length})
+    </div>
+    ${filesSection}
+    <hr style="border:none;border-top:1px solid var(--vscode-panel-border,#444);margin:8px 0;">
     <pre style="font-size:11px;white-space:pre-wrap;word-break:break-word;margin:0;
                 color:var(--vscode-foreground,#ccc);font-family:var(--vscode-font-family,monospace);">${escHtml(d.message)}</pre>
   `;
+
+  // Wire up click-to-diff on file rows (delegated listener on the files list).
+  const filesList = pane.querySelector<HTMLElement>("#gb-files-list");
+  if (filesList) {
+    filesList.addEventListener("click", (e) => {
+      const row = (e.target as Element).closest<HTMLElement>(".gb-file-row");
+      if (!row) return;
+      const { path: filePath, oldOid, newOid, status } = row.dataset as {
+        path: string;
+        oldOid: string;
+        newOid: string;
+        status: string;
+      };
+      postToHost({ type: "openDiff", filePath, oldOid, newOid, status });
+    });
+  }
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────

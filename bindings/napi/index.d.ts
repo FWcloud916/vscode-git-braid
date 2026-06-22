@@ -28,10 +28,32 @@
  */
 export declare function getGraphBatch(repoPath: string, offset: number, limit: number): Buffer
 
-/** Full detail of a single commit, for the commit detail panel. */
+/**
+ * A single file-level change introduced by a commit (vs its first parent).
+ *
+ * `status` is `"A"` (added), `"M"` (modified), or `"D"` (deleted).
+ * `old_oid` / `new_oid` are full 40-char hex blob OIDs; the missing side of an
+ * add/delete is an empty string `""`.  Rename detection is disabled; renames
+ * appear as a deletion + an addition.
+ *
+ * napi-rs maps snake_case → camelCase in TypeScript.
+ */
+export interface FileChange {
+  path: string
+  status: string
+  oldOid: string
+  newOid: string
+}
+
+/**
+ * Full detail of a single commit, for the commit detail panel.
+ *
+ * napi-rs maps the snake_case Rust fields to camelCase in TypeScript
+ * (`author_name` → `authorName`, etc.).
+ */
 export interface CommitDetail {
   oid: string
-  parents: string[]
+  parents: Array<string>
   authorName: string
   authorEmail: string
   authorTime: number
@@ -39,6 +61,8 @@ export interface CommitDetail {
   committerEmail: string
   commitTime: number
   message: string
+  /** Files changed by this commit relative to its first parent (tree-diff, rename detection OFF). Sorted by path for determinism. */
+  files: Array<FileChange>
 }
 
 /**
@@ -48,3 +72,12 @@ export interface CommitDetail {
  * @param oidHex   — full 40-character hex OID.
  */
 export declare function getCommitDetail(repoPath: string, oidHex: string): CommitDetail
+
+/**
+ * Read the raw bytes of a git blob by OID hex string.
+ *
+ * @param repoPath — absolute path to the git worktree or `.git` directory.
+ * @param oidHex   — full 40-character hex OID, or `""` for the missing side of
+ *                   an add/delete (returns an empty Buffer in that case).
+ */
+export declare function getBlob(repoPath: string, oidHex: string): Buffer

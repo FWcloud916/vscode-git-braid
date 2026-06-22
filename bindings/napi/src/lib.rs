@@ -85,6 +85,22 @@ pub fn get_graph_batch(repo_path: String, offset: u32, limit: u32) -> napi::Resu
     Ok(Buffer::from(encode_batch(batch, batch_metas)))
 }
 
+/// A single file-level change introduced by a commit (vs its first parent).
+///
+/// `status` is `"A"` (added), `"M"` (modified), or `"D"` (deleted).
+/// `old_oid` / `new_oid` are full 40-char hex blob OIDs; the missing side of an
+/// add/delete is an empty string `""`.  Rename detection is disabled; renames
+/// appear as a deletion + an addition.
+///
+/// napi-rs maps snake_case → camelCase in TypeScript.
+#[napi(object)]
+pub struct FileChange {
+    pub path: String,
+    pub status: String,
+    pub old_oid: String,
+    pub new_oid: String,
+}
+
 /// Full detail of a single commit, for the commit detail panel.
 ///
 /// napi-rs maps the snake_case Rust fields to camelCase in TypeScript
@@ -100,13 +116,69 @@ pub struct CommitDetail {
     pub committer_email: String,
     pub commit_time: f64,
     pub message: String,
+    /// Files changed by this commit relative to its first parent (tree-diff,
+    /// rename detection OFF). Sorted by path for determinism.
+    pub files: Vec<FileChange>,
+}
+
+/// Populate `files` by diffing `lhs_tree` → `rhs_tree`.
+/// Rename detection is disabled — faster and safe for blobless clones.
+fn collect_diff_files(
+    lhs_tree: &gix::Tree<'_>,
+    rhs_tree: &gix::Tree<'_>,
+    files: &mut Vec<FileChange>,
+) -> napi::Result<()> {
+    use gix::bstr::ByteSlice;
+    use gix::object::tree::diff::{Action, Change};
+
+    lhs_tree
+        .changes()
+        .map_err(|e| napi::Error::from_reason(format!("tree changes: {e}")))?
+        .options(|o: &mut gix::diff::Options| {
+            o.track_rewrites(None);
+        })
+        .for_each_to_obtain_tree(rhs_tree, |change| {
+            let fc = match change {
+                Change::Addition { location, id, .. } => FileChange {
+                    path: location.to_str_lossy().into_owned(),
+                    status: "A".to_string(),
+                    old_oid: String::new(),
+                    new_oid: id.detach().to_hex().to_string(),
+                },
+                Change::Deletion { location, id, .. } => FileChange {
+                    path: location.to_str_lossy().into_owned(),
+                    status: "D".to_string(),
+                    old_oid: id.detach().to_hex().to_string(),
+                    new_oid: String::new(),
+                },
+                Change::Modification {
+                    location,
+                    previous_id,
+                    id,
+                    ..
+                } => FileChange {
+                    path: location.to_str_lossy().into_owned(),
+                    status: "M".to_string(),
+                    old_oid: previous_id.detach().to_hex().to_string(),
+                    new_oid: id.detach().to_hex().to_string(),
+                },
+                // Rewrites are disabled — this arm is unreachable in practice.
+                Change::Rewrite { .. } => {
+                    return Ok::<_, std::convert::Infallible>(Action::Continue)
+                }
+            };
+            files.push(fc);
+            Ok::<_, std::convert::Infallible>(Action::Continue)
+        })
+        .map_err(|e| napi::Error::from_reason(format!("tree diff: {e}")))?;
+    Ok(())
 }
 
 /// Fetch full detail for a single commit by OID hex string.
 ///
 /// `oid_hex` is the full 40-character hex SHA-1.
-/// Returns author/committer name, email, timestamps, and the full message.
-/// The changed-file list is added in M3 Slice 2.
+/// Returns author/committer name, email, timestamps, full message, and the
+/// list of files changed vs the first parent (tree-diff; rename detection off).
 #[napi]
 pub fn get_commit_detail(repo_path: String, oid_hex: String) -> napi::Result<CommitDetail> {
     use gix::bstr::ByteSlice;
@@ -130,15 +202,86 @@ pub fn get_commit_detail(repo_path: String, oid_hex: String) -> napi::Result<Com
     let author = data.author();
     let committer = data.committer();
 
+    // Collect metadata as owned values before the tree-diff borrows.
+    let detail_oid = oid.to_hex().to_string();
+    let detail_parents: Vec<String> = data.parents().map(|p| p.to_hex().to_string()).collect();
+    let detail_author_name = author.name.to_str_lossy().into_owned();
+    let detail_author_email = author.email.to_str_lossy().into_owned();
+    let detail_author_time = author.time.seconds as f64;
+    let detail_committer_name = committer.name.to_str_lossy().into_owned();
+    let detail_committer_email = committer.email.to_str_lossy().into_owned();
+    let detail_commit_time = committer.time.seconds as f64;
+    let detail_message = data.message.to_str_lossy().into_owned();
+
+    // Collect the first parent OID while `data` is still alive (ObjectId is Copy).
+    let parent_oid: Option<gix::ObjectId> = data.parents().next();
+    drop(data);
+
+    // ── Tree-diff vs first parent (or empty tree for root commits) ────────────
+    // diff direction: parent → commit  ≡  "what this commit introduced"
+    let commit_tree = commit
+        .tree()
+        .map_err(|e| napi::Error::from_reason(format!("commit tree: {e}")))?;
+
+    let mut files: Vec<FileChange> = Vec::new();
+
+    if let Some(p_oid) = parent_oid {
+        let parent_obj = repo
+            .find_object(p_oid)
+            .map_err(|e| napi::Error::from_reason(format!("parent find: {e}")))?;
+        let parent_commit = parent_obj
+            .try_into_commit()
+            .map_err(|_| napi::Error::from_reason("parent is not a commit".to_string()))?;
+        let parent_tree = parent_commit
+            .tree()
+            .map_err(|e| napi::Error::from_reason(format!("parent tree: {e}")))?;
+        collect_diff_files(&parent_tree, &commit_tree, &mut files)?;
+    } else {
+        // Root commit: diff empty tree → commit tree → every file is an addition.
+        let empty = repo.empty_tree();
+        collect_diff_files(&empty, &commit_tree, &mut files)?;
+    }
+
+    // Sort by path for determinism.
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+
     Ok(CommitDetail {
-        oid: oid.to_hex().to_string(),
-        parents: data.parents().map(|p| p.to_hex().to_string()).collect(),
-        author_name: author.name.to_str_lossy().into_owned(),
-        author_email: author.email.to_str_lossy().into_owned(),
-        author_time: author.time.seconds as f64,
-        committer_name: committer.name.to_str_lossy().into_owned(),
-        committer_email: committer.email.to_str_lossy().into_owned(),
-        commit_time: committer.time.seconds as f64,
-        message: data.message.to_str_lossy().into_owned(),
+        oid: detail_oid,
+        parents: detail_parents,
+        author_name: detail_author_name,
+        author_email: detail_author_email,
+        author_time: detail_author_time,
+        committer_name: detail_committer_name,
+        committer_email: detail_committer_email,
+        commit_time: detail_commit_time,
+        message: detail_message,
+        files,
     })
+}
+
+/// Read the raw bytes of a git blob by OID hex string.
+///
+/// Returns the blob's raw bytes as a `Buffer`.
+/// If `oid_hex` is an empty string, returns an empty `Buffer` — this is the
+/// convention for the "missing side" of an addition or deletion in the diff
+/// view (so the `gitbraid:` content provider can serve an empty document).
+///
+/// The read path is gitoxide-only — no `git` subprocess is spawned.
+#[napi]
+pub fn get_blob(repo_path: String, oid_hex: String) -> napi::Result<Buffer> {
+    if oid_hex.is_empty() {
+        return Ok(Buffer::from(Vec::<u8>::new()));
+    }
+
+    let path = std::path::Path::new(&repo_path);
+    let repo = gix::open(path).map_err(|e| napi::Error::from_reason(format!("open repo: {e}")))?;
+
+    let oid = gix::ObjectId::from_hex(oid_hex.trim().as_bytes())
+        .map_err(|e| napi::Error::from_reason(format!("invalid OID '{oid_hex}': {e}")))?;
+
+    let obj = repo
+        .find_object(oid)
+        .map_err(|e| napi::Error::from_reason(format!("find_object: {e}")))?;
+
+    Ok(Buffer::from(obj.detach().data))
 }

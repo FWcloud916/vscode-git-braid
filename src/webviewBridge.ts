@@ -23,14 +23,17 @@
  *   `{ type: "selectCommit", oid: string }` — user clicked a commit row
  */
 
+import * as path from "path";
 import * as vscode from "vscode";
 import { getGraphBatch, getCommitDetail, type CommitDetail } from "@git-braid/native";
+import { buildDiffUri } from "./diffProvider";
 
 /** Messages the webview can send to the extension host. */
 type WebviewMessage =
   | { type: "ready" }
   | { type: "requestBatch"; offset: number; limit: number }
-  | { type: "selectCommit"; oid: string };
+  | { type: "selectCommit"; oid: string }
+  | { type: "openDiff"; filePath: string; oldOid: string; newOid: string; status: string };
 
 /** Messages the extension host can send to the webview. */
 type HostMessage =
@@ -107,6 +110,9 @@ export class WebviewBridge implements vscode.Disposable {
       case "selectCommit":
         void this._sendCommitDetail(message.oid);
         break;
+      case "openDiff":
+        void this._openDiff(message.filePath, message.oldOid, message.newOid, message.status);
+        break;
     }
   }
 
@@ -150,6 +156,33 @@ export class WebviewBridge implements vscode.Disposable {
     try {
       const detail = getCommitDetail(this._repoPath, oidHex);
       await this._postMessage({ type: "commitDetail", detail });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await this._postMessage({ type: "error", message });
+    }
+  }
+
+  /**
+   * Open VS Code's built-in side-by-side diff for a single changed file.
+   *
+   * Called when the webview reports an `openDiff` message (user clicked a file
+   * row in the changed-files list). Both blob sides are served by the
+   * `gitbraid:` `TextDocumentContentProvider` — no `git` subprocess is spawned.
+   */
+  private async _openDiff(
+    filePath: string,
+    oldOid: string,
+    newOid: string,
+    status: string,
+  ): Promise<void> {
+    try {
+      const leftUri = buildDiffUri(this._repoPath, filePath, oldOid);
+      const rightUri = buildDiffUri(this._repoPath, filePath, newOid);
+      const shortOid = newOid.slice(0, 8) || oldOid.slice(0, 8);
+      const basename = path.basename(filePath);
+      const statusLabel = status === "A" ? "added" : status === "D" ? "deleted" : "modified";
+      const title = `${basename} (${statusLabel} ${shortOid})`;
+      await vscode.commands.executeCommand("vscode.diff", leftUri, rightUri, title);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this._postMessage({ type: "error", message });
