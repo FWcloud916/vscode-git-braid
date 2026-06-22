@@ -4,7 +4,20 @@
 
 ---
 
-## Current milestone: M4 — Write ops + context menu
+## Current milestone: Copy clipboard actions (context menu)
+
+**Goal:** Right-click a commit → Copy commit hash / short hash / subject / full message to clipboard, with a 2-second status-bar feedback notification.
+
+**Status:** ✅ Done
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `src/webviewBridge.ts` — `copy` WebviewMessage, `_handleMessage` case, `_handleCopy` method | ✅ | Host-side `vscode.env.clipboard.writeText`; subject/message via `getCommitDetail`; no native changes |
+| `web/index.ts` — 4 Copy items + separator at top of `buildMenuItems` | ✅ | Copy section topmost for quick access; `{ type:"copy" }` messages never trigger reload |
+
+---
+
+## Previous milestone: M4 — Write ops + context menu
 
 **Goal:** Right-click a commit → checkout / create+delete branch/tag / merge / rebase / cherry-pick / revert / reset / stash ops. All writes via `git` CLI with friendly stderr.
 
@@ -187,4 +200,4 @@ Git Graph + VS Code built-in, stop here.
 
 ---
 
-_Updated: 2026-06-22 · M4 complete — Slices 1–4: context-menu + checkout + branch/tag CRUD + merge/cherry-pick/revert + rebase/reset/stash_
+_Updated: 2026-06-22 · Copy clipboard actions added — hash / short hash / subject / message from right-click menu_
