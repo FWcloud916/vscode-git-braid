@@ -27,8 +27,9 @@ use git_braid_core::{
     layout::layout,
     serialize::encode_batch,
     walk::{
-        discover_repo as core_discover_repo, find_commits as core_find_commits, walk_commits,
-        SortOrder, WalkOptions,
+        discover_repo as core_discover_repo, find_commits as core_find_commits,
+        list_refs as core_list_refs, walk_commits, walk_range as core_walk_range, SortOrder,
+        WalkOptions,
     },
 };
 use napi::bindgen_prelude::Buffer;
@@ -367,6 +368,117 @@ pub fn find_commits(
             subject: m.subject,
             author: m.author,
             commit_time: m.commit_time as f64,
+        })
+        .collect())
+}
+
+// ── Release-notes: ref listing ────────────────────────────────────────────────
+
+/// A single ref (branch or tag) for the release-notes range picker.
+///
+/// `kind` is [`git_braid_core::model::RefKind`] as its `u8` discriminant:
+/// `0` = LocalBranch, `2` = Tag.
+///
+/// napi-rs maps snake_case → camelCase: `kind` stays `kind`, `oid` stays `oid`.
+#[napi(object)]
+pub struct RefInfo {
+    /// Display name (e.g. `"main"`, `"v1.0.0"`).
+    pub name: String,
+    /// `RefKind` discriminant: 0=LocalBranch, 2=Tag.
+    pub kind: u8,
+    /// Full 40-char lowercase hex OID of the commit this ref points at.
+    pub oid: String,
+}
+
+/// List all local branches and tags in `repo_path`, sorted branches-first
+/// then alphabetically.
+///
+/// Stash, remote branches, and HEAD are excluded — the picker shows only refs
+/// a user would naturally specify as range boundaries.
+///
+/// The read path is gitoxide-only — no `git` subprocess is spawned.
+#[napi]
+pub fn list_refs(repo_path: String) -> napi::Result<Vec<RefInfo>> {
+    let path = std::path::Path::new(&repo_path);
+
+    let core_refs =
+        core_list_refs(path).map_err(|e| napi::Error::from_reason(format!("list_refs: {e}")))?;
+
+    Ok(core_refs
+        .into_iter()
+        .map(|r| RefInfo {
+            name: r.name,
+            kind: r.kind as u8,
+            oid: r.oid.iter().fold(String::with_capacity(40), |mut s, b| {
+                use std::fmt::Write as _;
+                let _ = write!(s, "{b:02x}");
+                s
+            }),
+        })
+        .collect())
+}
+
+// ── Release-notes: range walk ─────────────────────────────────────────────────
+
+/// One commit in a `from..to` range walk, for release-notes generation.
+///
+/// When `includeDiffStat` was `false` on the originating `walkRange` call,
+/// `filesChanged`, `insertions`, and `deletions` are all `0`.
+///
+/// napi-rs maps snake_case → camelCase: `author_name` → `authorName`,
+/// `commit_time` → `commitTime`, `files_changed` → `filesChanged`.
+#[napi(object)]
+pub struct RangeCommit {
+    /// Full 40-char lowercase hex OID.
+    pub oid: String,
+    /// First line of the commit message.
+    pub subject: String,
+    /// Author display name.
+    pub author_name: String,
+    /// Committer time as Unix epoch seconds.
+    pub commit_time: f64,
+    /// Files changed vs first parent. 0 when diffstat is disabled.
+    pub files_changed: u32,
+    /// Lines added vs first parent (approximation). 0 when diffstat is disabled.
+    pub insertions: u32,
+    /// Lines removed vs first parent (approximation). 0 when diffstat is disabled.
+    pub deletions: u32,
+}
+
+/// Walk commits in `from_rev..to_rev` (newest first).
+///
+/// `from_rev` — ref name, OID hex, or rev-spec; pass `null` / `undefined` for
+/// the full ancestry of `to_rev`. `to_rev` — same format, e.g. `"HEAD"`.
+/// `include_diff_stat` — when `true` each commit's `filesChanged`,
+/// `insertions`, and `deletions` are populated (approximate newline counts).
+///
+/// The read path is gitoxide-only — no `git` subprocess is spawned.
+#[napi]
+pub fn walk_range(
+    repo_path: String,
+    from_rev: Option<String>,
+    to_rev: String,
+    include_diff_stat: bool,
+) -> napi::Result<Vec<RangeCommit>> {
+    let path = std::path::Path::new(&repo_path);
+
+    let core_commits = core_walk_range(path, from_rev.as_deref(), &to_rev, include_diff_stat)
+        .map_err(|e| napi::Error::from_reason(format!("walk_range: {e}")))?;
+
+    Ok(core_commits
+        .into_iter()
+        .map(|c| RangeCommit {
+            oid: c.oid.iter().fold(String::with_capacity(40), |mut s, b| {
+                use std::fmt::Write as _;
+                let _ = write!(s, "{b:02x}");
+                s
+            }),
+            subject: c.subject,
+            author_name: c.author_name,
+            commit_time: c.commit_time as f64,
+            files_changed: c.files_changed,
+            insertions: c.insertions,
+            deletions: c.deletions,
         })
         .collect())
 }

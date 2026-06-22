@@ -4,7 +4,30 @@
 
 ---
 
-## Current milestone: Copy clipboard actions (context menu)
+## Current milestone: M5 — First AI feature (release-notes generation)
+
+**Goal:** Pick two refs → gather commits via Rust/gitoxide → send to AI → open Markdown release notes in a new editable document. Two privacy levels (metadata-only / +diff stat). Supports vscode.lm + BYO key (Anthropic, OpenAI, Gemini, Groq). Opt-in gated, per-run consent modal.
+
+**Status:** ✅ Done
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `crates/core/src/model.rs` — `RefInfo` + `RangeCommit` types | ✅ | Model-layer types for picker + AI payload |
+| `crates/core/src/walk.rs` — `list_refs` + `walk_range` | ✅ | gitoxide read-path; `topo::Builder::with_ends` for `from..to` exclusion; newline-count diffstat approximation |
+| `bindings/napi/src/lib.rs` — `RefInfo`/`RangeCommit` napi objects + `listRefs`/`walkRange` exports | ✅ | Thin adapter; mirrors `find_commits` pattern |
+| `bindings/napi/index.d.ts` — TypeScript declarations for new exports | ✅ | Hand-maintained (custom gen-dts flow) |
+| `crates/core/tests/range.rs` — 8 integration tests | ✅ | range exclusion, empty range, diffstat enabled/disabled, root commit |
+| `crates/core/tests/list_refs.rs` — 5 integration tests | ✅ | kinds, sort order, no stash/remotes |
+| `src/ai/provider.ts` — `VscodeLmProvider` + `BYOKeyProvider` (claude/openai/gemini/groq) | ✅ | vscode.lm via `sendRequest`; Anthropic via SDK+streaming; OpenAI/Groq via raw fetch; Gemini via raw fetch |
+| `src/ai/releaseNotes.ts` — `buildMessages` + `generateReleaseNotes` | ✅ | Pure prompt builder + thin AI call; testable without live model |
+| `src/ai/releaseNotes.test.ts` — 11 vitest unit tests | ✅ | Prompt structure, diffstat suffix, range label, singular/plural |
+| `src/ai/releaseNotesCommand.ts` — full VS Code flow | ✅ | Opt-in gate → repo pick → two-ref QuickPick → privacy pick → provider/SecretStorage key → consent modal → walk → generate → open Markdown doc |
+| `src/extension.ts` — register command, export `resolveRepos`/`pickRepo` | ✅ | + `gitBraid.clearAiKey` utility command |
+| `package.json` — 2 new commands + 3 new AI settings + `@anthropic-ai/sdk` dependency | ✅ | `ai.provider`, `ai.model`, `ai.defaultDiffStat`; keys in SecretStorage not settings |
+
+---
+
+## Previous milestone: Copy clipboard actions (context menu)
 
 **Goal:** Right-click a commit → Copy commit hash / short hash / subject / full message to clipboard, with a 2-second status-bar feedback notification.
 
@@ -172,7 +195,7 @@
 | **M2 ⚑** | Canvas virtualised renderer → **MVP demo** | 3–5 days | ✅ |
 | M3 | Commit detail / diff / refs / find | 2–3 weeks | ✅ S1–S4 done |
 | M4 | Write ops + context menu | 3–4 weeks | ✅ S1–S4 done |
-| M5 | First AI feature (release-notes generation) | 2 weeks | 🔲 |
+| M5 | First AI feature (release-notes generation) | 2 weeks | ✅ |
 | M6 | Marketplace publish (preview) | — | 🔲 |
 
 ⚑ **M2 is the go/no-go gate.** If the MVP demo is not compelling vs original
@@ -200,4 +223,4 @@ Git Graph + VS Code built-in, stop here.
 
 ---
 
-_Updated: 2026-06-22 · Copy clipboard actions added — hash / short hash / subject / message from right-click menu_
+_Updated: 2026-06-22 · M5 complete — release-notes generation: Rust range-walk (gitoxide), vscode.lm + BYO key (Anthropic/OpenAI/Gemini/Groq), two privacy levels, consent modal, Markdown output_

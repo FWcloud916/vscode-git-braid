@@ -12,8 +12,16 @@
   "engines": {
     "vscode": "^1.93.0"
   },
-  "categories": ["SCM Providers"],
-  "keywords": ["git", "graph", "visualisation", "history", "ai"],
+  "categories": [
+    "SCM Providers"
+  ],
+  "keywords": [
+    "git",
+    "graph",
+    "visualisation",
+    "history",
+    "ai"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -31,6 +39,15 @@
         "command": "gitBraid.selectRepo",
         "title": "Git Braid: Switch Repository",
         "icon": "$(repo)"
+      },
+      {
+        "command": "gitBraid.generateReleaseNotes",
+        "title": "Git Braid: Generate Release Notes",
+        "icon": "$(note)"
+      },
+      {
+        "command": "gitBraid.clearAiKey",
+        "title": "Git Braid: Clear Stored AI API Key"
       }
     ],
     "configuration": {
@@ -45,7 +62,10 @@
         },
         "gitBraid.dateFormat": {
           "type": "string",
-          "enum": ["absolute", "relative"],
+          "enum": [
+            "absolute",
+            "relative"
+          ],
           "default": "absolute",
           "enumDescriptions": [
             "Locale date-time string (e.g. 6/22/2026, 3:14 PM).",
@@ -55,14 +75,39 @@
         },
         "gitBraid.graphColors": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Override the graph lane colour cycle (array of CSS colour strings, e.g. [\"#ff6b6b\", \"#4ecdc4\"]). Leave empty to use the built-in palette."
         },
         "gitBraid.ai.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable AI-assisted features (opt-in, Phase 3 — not yet active). When enabled, commit data may be sent to an LLM provider — see the privacy notice."
+          "description": "Enable AI-assisted features (opt-in). When enabled, commit data (subjects, authors, and optionally diff stats) is sent to the configured LLM provider. You will be asked to confirm before each operation."
+        },
+        "gitBraid.ai.provider": {
+          "type": "string",
+          "enum": ["vscode-lm", "anthropic", "openai", "gemini", "groq"],
+          "default": "vscode-lm",
+          "enumDescriptions": [
+            "VS Code Language Model API — uses your existing AI extension (e.g. GitHub Copilot). No API key required.",
+            "Anthropic Claude — BYO API key (stored in SecretStorage, not settings).",
+            "OpenAI — BYO API key (stored in SecretStorage, not settings).",
+            "Google Gemini — BYO API key (stored in SecretStorage, not settings).",
+            "Groq — BYO API key (stored in SecretStorage, not settings)."
+          ],
+          "description": "Which AI provider to use for release-notes generation. API keys for BYO providers are stored in VS Code SecretStorage."
+        },
+        "gitBraid.ai.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model name for BYO key providers. Examples: claude-opus-4-8 (Anthropic), gpt-4o (OpenAI), gemini-1.5-pro (Gemini), llama-3.3-70b-versatile (Groq). Ignored when using vscode-lm."
+        },
+        "gitBraid.ai.defaultDiffStat": {
+          "type": "boolean",
+          "default": false,
+          "description": "Pre-select 'Include diff stat' in the privacy-level picker when generating release notes. Diff stats add approximate files-changed and ±line counts to the AI prompt."
         }
       }
     },
@@ -74,6 +119,10 @@
         },
         {
           "command": "gitBraid.selectRepo",
+          "group": "navigation"
+        },
+        {
+          "command": "gitBraid.generateReleaseNotes",
           "group": "navigation"
         }
       ]
@@ -101,6 +150,7 @@
     "vscode:prepublish": "pnpm run build"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
     "@git-braid/native": "workspace:*"
   },
   "devDependencies": {

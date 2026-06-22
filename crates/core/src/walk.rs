@@ -25,7 +25,7 @@ use std::collections::{HashMap, HashSet};
 
 use gix::bstr::{BStr, ByteSlice};
 
-use crate::model::{CommitIn, CommitMeta, Oid, RefKind, RefLabel};
+use crate::model::{CommitIn, CommitMeta, Oid, RangeCommit, RefInfo, RefKind, RefLabel};
 
 /// Which ordering policy to apply to the commit walk.
 #[derive(Debug, Clone, Copy, Default)]
@@ -305,6 +305,260 @@ pub fn find_commits(
     }
 
     Ok(results)
+}
+
+// ── List refs (release-notes range picker) ────────────────────────────────────
+
+/// List all local branches and tags, sorted branches-first then alphabetically.
+///
+/// Stash, remote branches, and HEAD are excluded — the picker shows only the
+/// refs a user would naturally specify as `from`/`to` range boundaries.
+///
+/// This is a **read-path** operation — gitoxide only; no `git` subprocess.
+pub fn list_refs(repo_path: &std::path::Path) -> Result<Vec<RefInfo>, Box<dyn std::error::Error>> {
+    let repo = gix::open(repo_path)?;
+    let mut result: Vec<RefInfo> = Vec::new();
+
+    let refs_platform = repo.references()?;
+    for r in refs_platform.all()? {
+        let mut r = match r {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let Some((kind, name)) = classify_ref(r.name().as_bstr()) else {
+            continue;
+        };
+        // Only expose local branches and tags to the picker.
+        if !matches!(kind, RefKind::LocalBranch | RefKind::Tag) {
+            continue;
+        }
+        let Ok(commit_id) = r.peel_to_commit() else {
+            continue;
+        };
+        let oid = oid_to_fixed20(&commit_id.id);
+        result.push(RefInfo { name, kind, oid });
+    }
+
+    // Sort: local branches before tags, alphabetically within each group.
+    result.sort_by(|a, b| {
+        let ka: u8 = match a.kind {
+            RefKind::LocalBranch => 0,
+            RefKind::Tag => 1,
+            _ => 2,
+        };
+        let kb: u8 = match b.kind {
+            RefKind::LocalBranch => 0,
+            RefKind::Tag => 1,
+            _ => 2,
+        };
+        ka.cmp(&kb).then_with(|| a.name.cmp(&b.name))
+    });
+
+    Ok(result)
+}
+
+// ── Range walk (release-notes commit list) ────────────────────────────────────
+
+/// Walk commits reachable from `to_rev` but **not** from `from_rev`
+/// (`from_rev..to_rev` in git notation), newest first.
+///
+/// `from_rev` — any ref name, full OID, or rev-spec accepted by
+/// `gix::Repository::rev_parse_single`. Pass `None` for full ancestry of
+/// `to_rev`.
+/// `to_rev` — same format; typically `"HEAD"` or a tag name.
+///
+/// When `include_diff_stat` is `true` each commit carries an **approximation**
+/// of the files changed, lines added, and lines removed vs its first parent.
+/// The counts are derived from newline-counting of blob content (fast,
+/// deterministic), not a full Myers/Histogram line-diff. This is precise enough
+/// for a release-notes prompt and avoids fetching the full diff algorithm API
+/// surface. When `false` those three fields are 0.
+///
+/// **Read-path only** — gitoxide; no `git` subprocess.
+pub fn walk_range(
+    repo_path: &std::path::Path,
+    from_rev: Option<&str>,
+    to_rev: &str,
+    include_diff_stat: bool,
+) -> Result<Vec<RangeCommit>, Box<dyn std::error::Error>> {
+    let repo = gix::open(repo_path)?;
+
+    // Resolve `to_rev` → OID.
+    let to_oid = repo.rev_parse_single(to_rev.trim())?.object()?.id;
+
+    // Resolve `from_rev` → OID, if provided.
+    let from_oid: Option<gix::ObjectId> = match from_rev {
+        Some(rev) => Some(repo.rev_parse_single(rev.trim())?.object()?.id),
+        None => None,
+    };
+
+    // Build topological walk using the `revision` feature's topo builder.
+    // `with_ends` implements the `from..to` exclusion (verified: gix 0.70
+    // docs.rs `topo::Builder::with_ends`).
+    let mut builder = gix::traverse::commit::topo::Builder::new(&repo.objects)
+        .with_tips([to_oid])
+        .sorting(gix::traverse::commit::topo::Sorting::DateOrder);
+    if let Some(f) = from_oid {
+        builder = builder.with_ends([f]);
+    }
+
+    let walk = builder.build()?;
+
+    // First pass: collect OIDs (walk borrows repo.objects; drop walk before
+    // the metadata pass so we can call repo.find_object again).
+    let mut gix_oids: Vec<gix::ObjectId> = Vec::new();
+    for item in walk {
+        gix_oids.push(item?.id);
+    }
+    // Walk is dropped here — repo.objects borrow released.
+
+    // Post-filter: gix `with_ends` excludes ancestors of the end commit but
+    // not the end commit itself when it happens to be the tip as well (edge
+    // case: from == to). Matching git's `^A B` semantics, `from` must never
+    // appear in the output regardless of how the traversal landed.
+    if let Some(f) = from_oid {
+        gix_oids.retain(|oid| *oid != f);
+    }
+
+    // Second pass: metadata + optional diffstat.
+    let mut result: Vec<RangeCommit> = Vec::with_capacity(gix_oids.len());
+    for gix_oid in &gix_oids {
+        let obj = repo.find_object(*gix_oid)?;
+        let commit = obj.try_into_commit()?;
+        let data = commit.decode()?;
+
+        let subject = data
+            .message
+            .split(|&b| b == b'\n')
+            .next()
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .unwrap_or_default();
+        let author_name = data.author().name.to_str_lossy().into_owned();
+        let commit_time = data.committer().time.seconds;
+        // Copy parent OID before dropping `data` (ObjectId is Copy).
+        let parent_oid: Option<gix::ObjectId> = data.parents().next();
+        drop(data); // release borrow on `commit`
+
+        let (files_changed, insertions, deletions) = if include_diff_stat {
+            // Tree-diff vs first parent (or empty tree for root commits).
+            let commit_tree = commit.tree()?;
+            let (mut fc, mut ins, mut del) = (0u32, 0u32, 0u32);
+            if let Some(p_oid) = parent_oid {
+                let parent_obj = repo.find_object(p_oid)?;
+                let parent_commit = parent_obj.try_into_commit()?;
+                let parent_tree = parent_commit.tree()?;
+                diffstat_trees(
+                    &parent_tree,
+                    &commit_tree,
+                    &repo,
+                    &mut fc,
+                    &mut ins,
+                    &mut del,
+                )?;
+            } else {
+                let empty = repo.empty_tree();
+                diffstat_trees(&empty, &commit_tree, &repo, &mut fc, &mut ins, &mut del)?;
+            }
+            (fc, ins, del)
+        } else {
+            (0, 0, 0)
+        };
+
+        result.push(RangeCommit {
+            oid: oid_to_fixed20(gix_oid),
+            subject,
+            author_name,
+            commit_time,
+            files_changed,
+            insertions,
+            deletions,
+        });
+    }
+
+    Ok(result)
+}
+
+/// Tree-diff two trees and accumulate diffstat into the provided counters.
+///
+/// Insertions and deletions are approximated by counting newlines in the new
+/// and old blob data respectively. For added files, the new blob's line count
+/// becomes insertions; for deleted files, the old blob's becomes deletions;
+/// for modified files, both sides are counted (so a 1-line change in a
+/// 500-line file reports ~500 ins + ~500 del — an over-count, but sufficient
+/// for a release-notes prompt).
+fn diffstat_trees(
+    lhs: &gix::Tree<'_>,
+    rhs: &gix::Tree<'_>,
+    repo: &gix::Repository,
+    files_changed: &mut u32,
+    insertions: &mut u32,
+    deletions: &mut u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use gix::object::tree::diff::{Action, Change};
+
+    // Collect OID pairs first; avoid blob fetches inside the closure to dodge
+    // any potential borrow conflicts with the tree-diff iterator.
+    struct Entry {
+        old_oid: Option<gix::ObjectId>,
+        new_oid: Option<gix::ObjectId>,
+    }
+    let mut entries: Vec<Entry> = Vec::new();
+
+    lhs.changes()?
+        .options(|o: &mut gix::diff::Options| {
+            o.track_rewrites(None);
+        })
+        .for_each_to_obtain_tree(rhs, |change| {
+            let entry = match &change {
+                Change::Addition { id, .. } => Entry {
+                    old_oid: None,
+                    new_oid: Some(id.detach()),
+                },
+                Change::Deletion { id, .. } => Entry {
+                    old_oid: Some(id.detach()),
+                    new_oid: None,
+                },
+                Change::Modification {
+                    previous_id, id, ..
+                } => Entry {
+                    old_oid: Some(previous_id.detach()),
+                    new_oid: Some(id.detach()),
+                },
+                // Rewrites are disabled; this arm is unreachable in practice.
+                Change::Rewrite { .. } => {
+                    return Ok::<_, std::convert::Infallible>(Action::Continue)
+                }
+            };
+            entries.push(entry);
+            Ok::<_, std::convert::Infallible>(Action::Continue)
+        })?;
+
+    *files_changed = entries.len() as u32;
+
+    // Fetch blobs and count lines (tree-diff borrow released above).
+    for entry in &entries {
+        if let Some(oid) = entry.new_oid {
+            if let Ok(obj) = repo.find_object(oid) {
+                *insertions += count_lines(&obj.data);
+            }
+        }
+        if let Some(oid) = entry.old_oid {
+            if let Ok(obj) = repo.find_object(oid) {
+                *deletions += count_lines(&obj.data);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Count lines in a byte slice by counting `\n` characters.
+/// A non-empty slice with no trailing newline counts as at least 1 line.
+fn count_lines(data: &[u8]) -> u32 {
+    if data.is_empty() {
+        return 0;
+    }
+    data.iter().filter(|&&b| b == b'\n').count() as u32 + 1
 }
 
 // ── Repository discovery ─────────────────────────────────────────────────────

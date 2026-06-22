@@ -132,6 +132,46 @@ pub struct LaneEntry {
     pub color: ColorId,
 }
 
+// ─── Range walk / release-notes types ────────────────────────────────────────
+
+/// A ref (branch or tag) returned by [`crate::walk::list_refs`], for use in the
+/// release-notes range picker.
+///
+/// Only local branches and tags are included; stash, remotes, and HEAD are
+/// excluded — the picker shows only refs a user would naturally name as range
+/// boundaries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefInfo {
+    /// Display name (e.g. `"main"`, `"v1.0.0"`).
+    pub name: String,
+    pub kind: RefKind,
+    /// The OID of the commit this ref points at (after peeling tags).
+    pub oid: Oid,
+}
+
+/// One commit returned by [`crate::walk::walk_range`] for release-notes
+/// generation.
+///
+/// `files_changed`, `insertions`, and `deletions` are 0 when
+/// `include_diff_stat` was `false`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RangeCommit {
+    /// The 20-byte OID of this commit.
+    pub oid: Oid,
+    /// First line of the commit message (the subject).
+    pub subject: String,
+    /// Author display name.
+    pub author_name: String,
+    /// Committer time as Unix epoch seconds.
+    pub commit_time: i64,
+    /// Number of files changed vs first parent. 0 when diffstat is disabled.
+    pub files_changed: u32,
+    /// Lines added vs first parent (approximation). 0 when diffstat is disabled.
+    pub insertions: u32,
+    /// Lines removed vs first parent (approximation). 0 when diffstat is disabled.
+    pub deletions: u32,
+}
+
 // ─── Per-commit metadata (BRAI v2) ─────────────────────────────────────────────
 
 /// Ref classification for a [`RefLabel`].

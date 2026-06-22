@@ -16,6 +16,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { WebviewBridge } from "./webviewBridge";
 import { GitBraidContentProvider } from "./diffProvider";
+import { runReleaseNotesCommand } from "./ai/releaseNotesCommand";
 import { discoverRepo } from "@git-braid/native";
 
 let bridge: WebviewBridge | undefined;
@@ -30,8 +31,11 @@ let bridge: WebviewBridge | undefined;
  * from each folder's path until it finds a `.git` directory — so a workspace
  * folder that is a subdirectory of a repo is still found correctly.
  * Duplicates are removed (multiple folders can resolve to the same root).
+ *
+ * Exported so the AI release-notes command can reuse it without duplicating
+ * discovery logic.
  */
-function resolveRepos(): string[] {
+export function resolveRepos(): string[] {
   const folders = vscode.workspace.workspaceFolders ?? [];
   const seen = new Set<string>();
   const repos: string[] = [];
@@ -49,8 +53,10 @@ function resolveRepos(): string[] {
  * If there is exactly one repo, return it without prompting.
  * Otherwise present a `showQuickPick` and return the chosen root, or
  * `undefined` if the user cancelled.
+ *
+ * Exported so the AI release-notes command can reuse it.
  */
-async function pickRepo(repos: string[]): Promise<string | undefined> {
+export async function pickRepo(repos: string[]): Promise<string | undefined> {
   if (repos.length === 1) {
     return repos[0]!;
   }
@@ -158,6 +164,37 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
+  // ── gitBraid.generateReleaseNotes ─────────────────────────────────────────
+  // AI-assisted release-notes generation for a commit range (M5).
+  // Opt-in gated: gitBraid.ai.enabled must be true (or the user enables it
+  // when prompted). Keys stored in SecretStorage, never in settings.json.
+  const generateReleaseNotes = vscode.commands.registerCommand(
+    "gitBraid.generateReleaseNotes",
+    () => runReleaseNotesCommand(context, resolveRepos, pickRepo),
+  );
+
+  // ── gitBraid.clearAiKey ────────────────────────────────────────────────────
+  // Utility command to remove a stored BYO API key from SecretStorage.
+  const clearAiKey = vscode.commands.registerCommand(
+    "gitBraid.clearAiKey",
+    async () => {
+      const providers = ["anthropic", "openai", "gemini", "groq"];
+      const pick = await vscode.window.showQuickPick(
+        providers.map((p) => ({
+          label: p,
+          description: `Clear stored ${p} API key`,
+        })),
+        { title: "Git Braid — Clear stored API key", placeHolder: "Select provider" },
+      );
+      if (pick) {
+        await context.secrets.delete(`gitBraid.ai.apiKey.${pick.label}`);
+        void vscode.window.showInformationMessage(
+          `Git Braid: ${pick.label} API key removed from SecretStorage.`,
+        );
+      }
+    },
+  );
+
   // Register the `gitbraid:` content provider once, for the lifetime of the
   // extension. The provider serves blob content to VS Code's built-in diff
   // viewer via gitoxide (no `git` subprocess).
@@ -168,7 +205,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  context.subscriptions.push(openGraph, selectRepo, find);
+  context.subscriptions.push(openGraph, selectRepo, find, generateReleaseNotes, clearAiKey);
 }
 
 export function deactivate(): void {

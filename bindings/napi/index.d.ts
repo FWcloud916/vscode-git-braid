@@ -138,3 +138,71 @@ export interface FindMatch {
  * The read path is gitoxide-only — no `git` subprocess is spawned.
  */
 export declare function findCommits(repoPath: string, query: string, maxResults: number): Array<FindMatch>
+
+// ── Release-notes: ref listing ────────────────────────────────────────────────
+
+/**
+ * A single ref (branch or tag) for the release-notes range picker.
+ *
+ * `kind` is the `RefKind` discriminant: `0` = LocalBranch, `2` = Tag.
+ * napi-rs maps snake_case → camelCase (no field renaming needed here).
+ */
+export interface RefInfo {
+  /** Display name, e.g. `"main"` or `"v1.0.0"`. */
+  name: string
+  /** `RefKind` as u8: 0 = LocalBranch, 2 = Tag. */
+  kind: number
+  /** Full 40-char lowercase hex OID of the commit this ref points at. */
+  oid: string
+}
+
+/**
+ * List all local branches and tags in `repoPath`, sorted branches-first then
+ * alphabetically within each group.
+ *
+ * Stash, remote branches, and HEAD are excluded — only refs a user would
+ * name as `from`/`to` range boundaries are returned.
+ *
+ * The read path is gitoxide-only — no `git` subprocess is spawned.
+ */
+export declare function listRefs(repoPath: string): Array<RefInfo>
+
+// ── Release-notes: range walk ─────────────────────────────────────────────────
+
+/**
+ * One commit in a `from..to` range walk, for release-notes generation.
+ *
+ * When `includeDiffStat` was `false` on the originating `walkRange` call,
+ * `filesChanged`, `insertions`, and `deletions` are all `0`.
+ *
+ * napi-rs maps snake_case → camelCase: `author_name` → `authorName`,
+ * `commit_time` → `commitTime`, `files_changed` → `filesChanged`.
+ */
+export interface RangeCommit {
+  /** Full 40-char lowercase hex OID. */
+  oid: string
+  /** First line of the commit message. */
+  subject: string
+  /** Author display name. */
+  authorName: string
+  /** Committer time as Unix epoch seconds. */
+  commitTime: number
+  /** Files changed vs first parent. 0 when diffstat is disabled. */
+  filesChanged: number
+  /** Lines added vs first parent (approximation). 0 when diffstat is disabled. */
+  insertions: number
+  /** Lines removed vs first parent (approximation). 0 when diffstat is disabled. */
+  deletions: number
+}
+
+/**
+ * Walk commits in `fromRev..toRev` (newest first).
+ *
+ * `fromRev` — ref name, OID hex, or rev-spec; pass `null` / `undefined` for
+ * the full ancestry of `toRev`. `toRev` — same format, e.g. `"HEAD"`.
+ * `includeDiffStat` — when `true` each commit's `filesChanged`, `insertions`,
+ * and `deletions` are populated (approximate newline counts).
+ *
+ * The read path is gitoxide-only — no `git` subprocess is spawned.
+ */
+export declare function walkRange(repoPath: string, fromRev: string | null | undefined, toRev: string, includeDiffStat: boolean): Array<RangeCommit>
