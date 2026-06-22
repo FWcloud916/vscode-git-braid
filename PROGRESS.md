@@ -4,7 +4,28 @@
 
 ---
 
-## Current milestone: M5 — First AI feature (release-notes generation)
+## Current milestone: M6 — Marketplace publish (packaging ready)
+
+**Goal:** Wire the native `.node` addon into the `.vsix` so an installed extension actually loads it. Deliver per-platform packaging, CI `publish.yml`, Marketplace metadata, and placeholder icon. The actual `vsce publish` + publisher registration + `VSCE_PAT` are the user's final step.
+
+**Status:** ✅ Done
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `esbuild.mjs` — esbuild plugin rewrites `@git-braid/native` → `require("../native")` | ✅ | External relative require; `dist/extension.js` resolves from inside installed .vsix |
+| `scripts/vendor-native.mjs` — copy loader + local `.node` into `native/` | ✅ | Cross-platform Node (no shell `cp`); NAPI_SRC env override for CI |
+| `package.json` — `vendor:native` + `build` chain + `package` scripts + `@vscode/vsce ^3` | ✅ | `build` = esbuild + vendor; `package` = darwin-arm64 local .vsix |
+| `pnpm-workspace.yaml` — approve `@vscode/vsce-sign` + `keytar` build scripts | ✅ | Required for vsce native deps |
+| `media/icon.png` — placeholder 128×128 PNG | ✅ | Navy/blue braid circle; user should swap for real art |
+| `package.json` metadata — `repository.url`, `icon`, `categories` | ✅ | URL: FWcloud916/vscode-git-braid; added "Visualization" |
+| `CHANGELOG.md` — 0.1.0 entry summarising M0–M5 | ✅ | |
+| `.vscodeignore` — add `scripts/`; keep `native/` included; keep `CHANGELOG.md` | ✅ | `CHANGELOG.md` removed from ignore (Marketplace expects it) |
+| `.github/workflows/build-napi.yml` — add `workflow_call:` trigger | ✅ | Makes it reusable from publish.yml |
+| `.github/workflows/publish.yml` — 4-platform matrix, `fail-fast: false`, VSCE_PAT | ✅ | All packaging on ubuntu-latest; 3-field matrix: vsceTarget + napiName + rustTriple |
+
+---
+
+## Previous milestone: M5 — First AI feature (release-notes generation)
 
 **Goal:** Pick two refs → gather commits via Rust/gitoxide → send to AI → open Markdown release notes in a new editable document. Two privacy levels (metadata-only / +diff stat). Supports vscode.lm + BYO key (Anthropic, OpenAI, Gemini, Groq). Opt-in gated, per-run consent modal.
 
@@ -196,7 +217,7 @@
 | M3 | Commit detail / diff / refs / find | 2–3 weeks | ✅ S1–S4 done |
 | M4 | Write ops + context menu | 3–4 weeks | ✅ S1–S4 done |
 | M5 | First AI feature (release-notes generation) | 2 weeks | ✅ |
-| M6 | Marketplace publish (preview) | — | 🔲 |
+| M6 | Marketplace publish (preview) | — | ✅ |
 
 ⚑ **M2 is the go/no-go gate.** If the MVP demo is not compelling vs original
 Git Graph + VS Code built-in, stop here.
@@ -223,4 +244,4 @@ Git Graph + VS Code built-in, stop here.
 
 ---
 
-_Updated: 2026-06-22 · M5 complete — release-notes generation: Rust range-walk (gitoxide), vscode.lm + BYO key (Anthropic/OpenAI/Gemini/Groq), two privacy levels, consent modal, Markdown output_
+_Updated: 2026-06-23 · M6 complete — per-platform .vsix packaging: esbuild native-vendor plugin, vendor:native script, publish.yml CI workflow (4-platform matrix), placeholder icon, Marketplace metadata_

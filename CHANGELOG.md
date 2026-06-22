@@ -9,22 +9,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### Added
-- Initial project scaffold: Rust workspace (`crates/core`, `bindings/napi`),
-  TypeScript extension host (`src/`), webview renderer skeleton (`web/`).
-- `crates/core/src/model.rs`: cross-layer System Contract types
-  (`CommitIn`, `RowLayout`, `Segment`, `BoundaryState`, `LaneEntry`).
-- `crates/core/src/layout.rs`: `layout()` function stub with full rustdoc
-  invariant documentation (append-only stability, determinism, no lane shift).
-- `crates/core/tests/golden.rs`: spec §9 golden test and invariant tests
-  (marked `#[ignore]` until M1 implementation).
-- `src/extension.ts`: `gitBraid.openGraph` command registration.
-- `src/webviewBridge.ts`: webview panel creation with binary protocol skeleton.
-- Canvas virtualised renderer stub (`web/renderer/canvas.ts`).
-- CI: `ci.yml` (Rust + TypeScript checks) and `build-napi.yml`
-  (4-platform native addon prebuild matrix).
-- Documentation: `README.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `PROGRESS.md`.
-- ADRs: clean-room rationale, gitoxide choice, napi choice, read/write split.
-- Docs: spec template, doc conventions guide, docs index.
+## [0.1.0] — 2026-06-23 (pre-release)
 
-[Unreleased]: https://github.com/TBD/vscode-git-braid/compare/HEAD
+### Added
+- **Git graph viewer** (`gitBraid.openGraph`) — virtualised Canvas renderer with
+  lane layout, HEAD marker, and commit detail panel (author, date, message, files).
+- **Copy commit info** — context-menu actions to copy hash, subject, or full
+  message for any commit.
+- **Git write operations** — rebase, reset, stash pop, merge, cherry-pick, revert,
+  and conflict surfacing via the `gitBraid.*` command palette.
+- **AI release notes** (`gitBraid.generateReleaseNotes`) — LLM-powered release
+  notes from a ref range; supports VS Code built-in LM API and BYO API keys
+  (Anthropic, OpenAI); opt-in with per-run disclosure.
+- **Rust core** (gitoxide) — high-performance log walk, lane layout, binary
+  serialisation, semantic commit search, and ref listing; all reads are gitoxide
+  only (no `git` subprocess spawned on the read path).
+- **napi-rs native addon** — 4-platform prebuild matrix (darwin-arm64,
+  darwin-x64, linux-x64-gnu, win32-x64-msvc); TypeScript declarations
+  auto-generated from Rust doc comments.
+- Initial project scaffold: Rust workspace, TypeScript extension host, webview
+  renderer, CI workflows, ADRs, and spec documentation.
+
+[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/FWcloud916/vscode-git-braid/releases/tag/v0.1.0
