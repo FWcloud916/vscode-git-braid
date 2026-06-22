@@ -23,6 +23,7 @@
  *   `{ type: "selectCommit", oid: string }` — user clicked a row
  *   `{ type: "openDiff", filePath, oldOid, newOid, status }` — file row clicked
  *   `{ type: "action", op: GitActionOp, oid: string, refs: ActionRef[] }` — write op
+ *   `{ type: "copy", field: "hash"|"shortHash"|"subject"|"message", oid: string }` — clipboard copy
  */
 
 import { CanvasRenderer } from "./renderer/canvas";
@@ -140,6 +141,11 @@ type GitActionOp =
  * Build context-menu items for the right-clicked commit row.
  *
  * Menu structure:
+ *   Copy commit hash
+ *   Copy short hash
+ *   Copy subject
+ *   Copy message
+ *   ──────────────────────────────────────────
  *   Checkout (per branch, or generic detached)
  *   ──────────────────────────────────────────
  *   Create branch here…
@@ -166,6 +172,27 @@ function buildMenuItems(info: { oidHex: string; refs: DecodedRef[] }): MenuItem[
   const localBranches = info.refs.filter(r => r.kind === REF_KIND_LOCAL_BRANCH);
   const tags = info.refs.filter(r => r.kind === REF_KIND_TAG);
   const stashes = info.refs.filter(r => r.kind === REF_KIND_STASH);
+
+  // ── Copy to clipboard ───────────────────────────────────────────────────
+  // Read-only convenience actions — topmost for quick access. The host handles
+  // clipboard write via `vscode.env.clipboard.writeText` (no CSP restrictions).
+  items.push({
+    label: "Copy commit hash",
+    action: () => postToHost({ type: "copy", field: "hash", oid: info.oidHex }),
+  });
+  items.push({
+    label: "Copy short hash",
+    action: () => postToHost({ type: "copy", field: "shortHash", oid: info.oidHex }),
+  });
+  items.push({
+    label: "Copy subject",
+    action: () => postToHost({ type: "copy", field: "subject", oid: info.oidHex }),
+  });
+  items.push({
+    label: "Copy message",
+    action: () => postToHost({ type: "copy", field: "message", oid: info.oidHex }),
+  });
+  items.push({ separator: true });
 
   // ── Checkout ────────────────────────────────────────────────────────────
   // One "Checkout <name>" per local branch (by branch-pointer, not detached),

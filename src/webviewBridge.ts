@@ -26,6 +26,7 @@
  *   `{ type: "selectCommit", oid: string }` — user clicked a commit row
  *   `{ type: "openDiff", filePath, oldOid, newOid, status }` — file diff request
  *   `{ type: "action", op: GitActionOp, oid, refs }` — git write op request
+ *   `{ type: "copy", field: "hash"|"shortHash"|"subject"|"message", oid: string }` — clipboard copy
  */
 
 import * as path from "path";
@@ -95,7 +96,8 @@ type WebviewMessage =
   | { type: "requestBatch"; offset: number; limit: number }
   | { type: "selectCommit"; oid: string }
   | { type: "openDiff"; filePath: string; oldOid: string; newOid: string; status: string }
-  | { type: "action"; op: GitActionOp; oid: string; refs: ActionRef[] };
+  | { type: "action"; op: GitActionOp; oid: string; refs: ActionRef[] }
+  | { type: "copy"; field: "hash" | "shortHash" | "subject" | "message"; oid: string };
 
 /** Messages the extension host can send to the webview. */
 type HostMessage =
@@ -202,6 +204,9 @@ export class WebviewBridge implements vscode.Disposable {
         break;
       case "action":
         void this._handleAction(message);
+        break;
+      case "copy":
+        void this._handleCopy(message);
         break;
     }
   }
@@ -450,6 +455,47 @@ export class WebviewBridge implements vscode.Disposable {
       await this._postMessage({ type: "reload" });
     } catch (err) {
       await this._presentGitError(msg.op, err);
+    }
+  }
+
+  /**
+   * Handle a clipboard copy request from the webview.
+   *
+   * Hash and short hash are derived from `msg.oid` directly (no native call).
+   * Subject and full message require a `getCommitDetail` call to fetch the text.
+   *
+   * Feedback: a 2-second status-bar notification (non-intrusive, matches VS Code
+   * editor copy conventions). On failure, posts an `error` message to the webview.
+   */
+  private async _handleCopy(
+    msg: Extract<WebviewMessage, { type: "copy" }>,
+  ): Promise<void> {
+    try {
+      let text: string;
+      let label: string;
+
+      if (msg.field === "hash") {
+        text  = msg.oid;
+        label = "commit hash";
+      } else if (msg.field === "shortHash") {
+        text  = msg.oid.slice(0, 7);
+        label = "short hash";
+      } else {
+        const detail = getCommitDetail(this._repoPath, msg.oid);
+        if (msg.field === "subject") {
+          text  = detail.message.split("\n")[0] ?? detail.message;
+          label = "subject";
+        } else {
+          text  = detail.message;
+          label = "message";
+        }
+      }
+
+      await vscode.env.clipboard.writeText(text);
+      vscode.window.setStatusBarMessage(`Git Braid: copied ${label}`, 2000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await this._postMessage({ type: "error", message });
     }
   }
 
