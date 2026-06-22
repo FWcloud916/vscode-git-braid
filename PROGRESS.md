@@ -8,7 +8,7 @@
 
 **Goal:** Right-click a commit → checkout / create+delete branch/tag / merge / rebase / cherry-pick / revert / reset / stash ops. All writes via `git` CLI with friendly stderr.
 
-**Status:** 🔲 In progress — Slices 1–3 done
+**Status:** ✅ Done (Slices 1–4 complete)
 
 ### M4 Slice 1 — Context-menu infrastructure + checkout
 
@@ -35,6 +35,14 @@
 | `src/gitActions.ts` — `merge`, `cherryPick`, `revert` (`--no-edit`) | ✅ | Conflict exits non-zero; caught and classified by `_presentGitError` |
 | `src/webviewBridge.ts` — 3 new `_handleAction` cases | ✅ | No pre-confirmation; conflict regex in `_presentGitError` fires correctly |
 | `web/index.ts` — Merge / Cherry-pick / Revert menu items | ✅ | Added to integrative-ops section |
+
+### M4 Slice 4 — rebase / reset / stash (history-altering ops)
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `src/gitActions.ts` — `rebase`, `resetSoft/Mixed/Hard`, `stashApply/Pop/Drop` | ✅ | All stubs replaced; stash ops take `stashRef` param for multi-stash repos |
+| `src/webviewBridge.ts` — 8 new `_handleAction` cases | ✅ | `resetHard` + `stashDrop` require modal confirm; stash ref extracted from `msg.refs[0]` |
+| `web/index.ts` — Rebase, Reset (×3), Stash (×3 per stash) menu items | ✅ | Stash items conditional on `REF_KIND_STASH` refs at commit |
 
 ---
 
@@ -150,7 +158,7 @@
 | **M1** | Layout algorithm + napi binding → host gets layout | 1 week | ✅ |
 | **M2 ⚑** | Canvas virtualised renderer → **MVP demo** | 3–5 days | ✅ |
 | M3 | Commit detail / diff / refs / find | 2–3 weeks | ✅ S1–S4 done |
-| M4 | Write ops + context menu | 3–4 weeks | 🔲 S1 done |
+| M4 | Write ops + context menu | 3–4 weeks | ✅ S1–S4 done |
 | M5 | First AI feature (release-notes generation) | 2 weeks | 🔲 |
 | M6 | Marketplace publish (preview) | — | 🔲 |
 
@@ -179,4 +187,4 @@ Git Graph + VS Code built-in, stop here.
 
 ---
 
-_Updated: 2026-06-22 · M4 started — Slice 1 complete: context-menu infra + checkout_
+_Updated: 2026-06-22 · M4 complete — Slices 1–4: context-menu + checkout + branch/tag CRUD + merge/cherry-pick/revert + rebase/reset/stash_

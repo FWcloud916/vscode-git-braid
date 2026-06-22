@@ -32,7 +32,13 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { getGraphBatch, getCommitDetail, findCommits, type CommitDetail, type FindMatch } from "@git-braid/native";
 import { buildDiffUri } from "./diffProvider";
-import { checkout, createBranch, deleteBranch, createTag, deleteTag, merge, cherryPick, revert, isConflictError } from "./gitActions";
+import {
+  checkout, createBranch, deleteBranch, createTag, deleteTag,
+  merge, rebase, cherryPick, revert,
+  resetSoft, resetMixed, resetHard,
+  stashApply, stashPop, stashDrop,
+  isConflictError,
+} from "./gitActions";
 
 /**
  * Validate a proposed git ref name without spawning a process.
@@ -388,8 +394,57 @@ export class WebviewBridge implements vscode.Disposable {
           await revert(msg.oid, this._repoPath);
           break;
 
+        case "rebase":
+          await rebase(msg.oid, this._repoPath);
+          break;
+
+        case "resetSoft":
+          await resetSoft(msg.oid, this._repoPath);
+          break;
+
+        case "resetMixed":
+          await resetMixed(msg.oid, this._repoPath);
+          break;
+
+        case "resetHard": {
+          const confirmReset = await vscode.window.showWarningMessage(
+            "Reset HEAD to this commit? Uncommitted changes will be lost.",
+            { modal: true },
+            "Reset",
+          );
+          if (confirmReset !== "Reset") return;
+          await resetHard(msg.oid, this._repoPath);
+          break;
+        }
+
+        case "stashApply": {
+          const stashRef = msg.refs[0]?.name;
+          if (stashRef === undefined) return;
+          await stashApply(stashRef, this._repoPath);
+          break;
+        }
+
+        case "stashPop": {
+          const stashRefPop = msg.refs[0]?.name;
+          if (stashRefPop === undefined) return;
+          await stashPop(stashRefPop, this._repoPath);
+          break;
+        }
+
+        case "stashDrop": {
+          const stashRefDrop = msg.refs[0]?.name;
+          if (stashRefDrop === undefined) return;
+          const confirmDrop = await vscode.window.showWarningMessage(
+            `Drop stash "${stashRefDrop}"? This cannot be undone.`,
+            { modal: true },
+            "Drop",
+          );
+          if (confirmDrop !== "Drop") return;
+          await stashDrop(stashRefDrop, this._repoPath);
+          break;
+        }
+
         default:
-          // Not yet implemented in this slice — silently ignore.
           return;
       }
       await this._postMessage({ type: "reload" });

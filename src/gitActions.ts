@@ -103,6 +103,30 @@ export async function deleteTag(name: string, cwd: string): Promise<void> {
   await runGit(["tag", "-d", name], cwd);
 }
 
-export async function stashPop(_cwd: string): Promise<void> {
-  throw new NotImplementedError("stashPop");
+// ── Reset operations ────────────────────────────────────────────────────────
+
+export async function resetSoft(oid: string, cwd: string): Promise<void> {
+  await runGit(["reset", "--soft", oid], cwd);
+}
+
+export async function resetMixed(oid: string, cwd: string): Promise<void> {
+  await runGit(["reset", "--mixed", oid], cwd);
+}
+
+export async function resetHard(oid: string, cwd: string): Promise<void> {
+  await runGit(["reset", "--hard", oid], cwd);
+}
+
+// ── Stash operations ────────────────────────────────────────────────────────
+
+export async function stashApply(stashRef: string, cwd: string): Promise<void> {
+  await runGit(["stash", "apply", stashRef], cwd);
+}
+
+export async function stashPop(stashRef: string, cwd: string): Promise<void> {
+  await runGit(["stash", "pop", stashRef], cwd);
+}
+
+export async function stashDrop(stashRef: string, cwd: string): Promise<void> {
+  await runGit(["stash", "drop", stashRef], cwd);
 }

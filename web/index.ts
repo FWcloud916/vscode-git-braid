@@ -26,7 +26,7 @@
  */
 
 import { CanvasRenderer } from "./renderer/canvas";
-import { decodeBatch, REF_KIND_LOCAL_BRANCH, REF_KIND_TAG, type DecodedRef } from "./renderer/decode";
+import { decodeBatch, REF_KIND_LOCAL_BRANCH, REF_KIND_TAG, REF_KIND_STASH, type DecodedRef } from "./renderer/decode";
 import { formatRelative } from "./format";
 import { showContextMenu, type MenuItem } from "./ui/contextMenu";
 
@@ -144,17 +144,28 @@ type GitActionOp =
  *   ──────────────────────────────────────────
  *   Create branch here…
  *   Create tag here…
+ *   ──────────────────────────────────────────
+ *   Merge into current branch
+ *   Cherry-pick onto current branch
+ *   Revert this commit
+ *   Rebase current branch onto this
+ *   ──────────────────────────────────────────
+ *   Reset (soft) to here
+ *   Reset (mixed) to here
+ *   Reset (hard) to here
  *   [if local branches or tags exist:]
  *   ──────────────────────────────────────────
  *     Delete branch <name>   (per local branch)
  *     Delete tag <name>      (per tag)
- *
- * Slices 3+4 will add: merge, rebase, cherry-pick, revert, reset, stash.
+ *   [if stash refs exist:]
+ *   ──────────────────────────────────────────
+ *     Apply stash / Pop stash / Drop stash
  */
 function buildMenuItems(info: { oidHex: string; refs: DecodedRef[] }): MenuItem[] {
   const items: MenuItem[] = [];
   const localBranches = info.refs.filter(r => r.kind === REF_KIND_LOCAL_BRANCH);
   const tags = info.refs.filter(r => r.kind === REF_KIND_TAG);
+  const stashes = info.refs.filter(r => r.kind === REF_KIND_STASH);
 
   // ── Checkout ────────────────────────────────────────────────────────────
   // One "Checkout <name>" per local branch (by branch-pointer, not detached),
@@ -219,6 +230,37 @@ function buildMenuItems(info: { oidHex: string; refs: DecodedRef[] }): MenuItem[
       oid: info.oidHex, refs: [],
     }),
   });
+  items.push({
+    label: "Rebase current branch onto this",
+    action: () => postToHost({
+      type: "action", op: "rebase" as GitActionOp,
+      oid: info.oidHex, refs: [],
+    }),
+  });
+
+  // ── Reset ───────────────────────────────────────────────────────────────
+  items.push({ separator: true });
+  items.push({
+    label: "Reset (soft) to here",
+    action: () => postToHost({
+      type: "action", op: "resetSoft" as GitActionOp,
+      oid: info.oidHex, refs: [],
+    }),
+  });
+  items.push({
+    label: "Reset (mixed) to here",
+    action: () => postToHost({
+      type: "action", op: "resetMixed" as GitActionOp,
+      oid: info.oidHex, refs: [],
+    }),
+  });
+  items.push({
+    label: "Reset (hard) to here",
+    action: () => postToHost({
+      type: "action", op: "resetHard" as GitActionOp,
+      oid: info.oidHex, refs: [],
+    }),
+  });
 
   // ── Delete branch / tag (conditional on refs at this commit) ───────────
   if (localBranches.length > 0 || tags.length > 0) {
@@ -238,6 +280,34 @@ function buildMenuItems(info: { oidHex: string; refs: DecodedRef[] }): MenuItem[
         action: () => postToHost({
           type: "action", op: "deleteTag" as GitActionOp,
           oid: info.oidHex, refs: [{ name: t.name, kind: t.kind }],
+        }),
+      });
+    }
+  }
+
+  // ── Stash ops (conditional on stash refs at this commit) ───────────────
+  if (stashes.length > 0) {
+    items.push({ separator: true });
+    for (const s of stashes) {
+      items.push({
+        label: `Apply ${s.name}`,
+        action: () => postToHost({
+          type: "action", op: "stashApply" as GitActionOp,
+          oid: info.oidHex, refs: [{ name: s.name, kind: s.kind }],
+        }),
+      });
+      items.push({
+        label: `Pop ${s.name}`,
+        action: () => postToHost({
+          type: "action", op: "stashPop" as GitActionOp,
+          oid: info.oidHex, refs: [{ name: s.name, kind: s.kind }],
+        }),
+      });
+      items.push({
+        label: `Drop ${s.name}`,
+        action: () => postToHost({
+          type: "action", op: "stashDrop" as GitActionOp,
+          oid: info.oidHex, refs: [{ name: s.name, kind: s.kind }],
         }),
       });
     }
