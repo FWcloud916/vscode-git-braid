@@ -28,6 +28,7 @@ use git_braid_core::{
     serialize::encode_batch,
     walk::{walk_commits, WalkOptions},
 };
+use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 
 /// Request a batch of commit graph rows from the Rust core.
@@ -51,7 +52,7 @@ use napi_derive::napi;
 /// TODO(M2): accept a serialised `BoundaryState` token so the host can resume layout
 /// from the previous batch boundary instead of recomputing from the repository root.
 #[napi]
-pub fn get_graph_batch(repo_path: String, offset: u32, limit: u32) -> napi::Result<Vec<u8>> {
+pub fn get_graph_batch(repo_path: String, offset: u32, limit: u32) -> napi::Result<Buffer> {
     let path = std::path::Path::new(&repo_path);
 
     // Walk enough commits to cover the requested window.
@@ -76,5 +77,5 @@ pub fn get_graph_batch(repo_path: String, offset: u32, limit: u32) -> napi::Resu
     let start = (offset as usize).min(rows.len());
     let batch = &rows[start..];
 
-    Ok(encode_batch(batch, &[]))
+    Ok(Buffer::from(encode_batch(batch, &[])))
 }
