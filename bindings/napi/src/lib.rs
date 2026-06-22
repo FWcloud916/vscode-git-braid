@@ -26,7 +26,7 @@
 use git_braid_core::{
     layout::layout,
     serialize::encode_batch,
-    walk::{walk_commits, WalkOptions},
+    walk::{walk_commits, SortOrder, WalkOptions},
 };
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
@@ -59,6 +59,10 @@ pub fn get_graph_batch(repo_path: String, offset: u32, limit: u32) -> napi::Resu
     // saturating_add guards against (offset + limit) overflowing usize.
     let walk_limit = (offset as usize).saturating_add(limit as usize);
     let opts = WalkOptions {
+        // Use date-order (= `git log --date-order`) so branches are interleaved
+        // by committer date rather than descending a single first-parent chain.
+        // This keeps concurrent active lanes low → compact graph, fewer diagonals.
+        order: SortOrder::Date,
         limit: if walk_limit > 0 {
             Some(walk_limit)
         } else {
