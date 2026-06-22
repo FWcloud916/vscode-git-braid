@@ -5,6 +5,7 @@ src/
 web/
 crates/
 bindings/
+scripts/
 tests/
 benches/
 docs/
@@ -31,5 +32,4 @@ target/
 .DS_Store
 **/.DS_Store
 CONTRIBUTING.md
-CHANGELOG.md
 PROGRESS.md

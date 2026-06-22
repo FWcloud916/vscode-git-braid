@@ -5,15 +5,17 @@
   "version": "0.1.0",
   "publisher": "TBD",
   "license": "MIT",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/TBD/vscode-git-braid"
+    "url": "https://github.com/FWcloud916/vscode-git-braid"
   },
   "engines": {
     "vscode": "^1.93.0"
   },
   "categories": [
-    "SCM Providers"
+    "SCM Providers",
+    "Visualization"
   ],
   "keywords": [
     "git",
@@ -137,11 +139,13 @@
     ]
   },
   "scripts": {
-    "build": "node esbuild.mjs",
+    "build": "node esbuild.mjs && pnpm run vendor:native",
     "build:watch": "node esbuild.mjs --watch",
     "build:napi": "pnpm --filter @git-braid/native build",
     "build:napi:debug": "pnpm --filter @git-braid/native build:debug",
     "gen-dts:napi": "pnpm --filter @git-braid/native gen-dts",
+    "vendor:native": "node scripts/vendor-native.mjs",
+    "package": "pnpm run build && vsce package --target darwin-arm64 --pre-release -o git-braid-darwin-arm64.vsix",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.web.json --noEmit",
     "lint": "eslint src web",
     "lint:fix": "eslint src web --fix",
@@ -159,6 +163,7 @@
     "@types/vscode": "^1.93.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
+    "@vscode/vsce": "^3.0.0",
     "esbuild": "^0.24.0",
     "eslint": "^9.0.0",
     "prettier": "^3.0.0",

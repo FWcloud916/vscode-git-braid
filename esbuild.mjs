@@ -26,6 +26,20 @@ const sharedOpts = {
   logLevel: "info",
 };
 
+// Rewrites `import … from "@git-braid/native"` to `require("../native")` in the
+// output bundle. dist/extension.js sits one level below the extension root, so
+// "../native" resolves to <root>/native/ — populated by `pnpm run vendor:native`
+// and included in every per-platform .vsix.
+const nativeVendorPlugin = {
+  name: "native-vendor",
+  setup(build) {
+    build.onResolve({ filter: /^@git-braid\/native$/ }, () => ({
+      path: "../native",
+      external: true,
+    }));
+  },
+};
+
 /** Extension host bundle — runs in VS Code's Node.js process */
 const extensionBundle = {
   ...sharedOpts,
@@ -34,9 +48,10 @@ const extensionBundle = {
   platform: "node",
   format: "cjs",
   target: "node20",
-  // `vscode` is injected by the extension host; never bundle it.
-  // `@git-braid/native` is a platform-native `.node` addon; require'd at runtime.
-  external: ["vscode", "@git-braid/native"],
+  // `vscode` is injected by the extension host at runtime.
+  // `@git-braid/native` is rewritten to require("../native") by the plugin above.
+  external: ["vscode"],
+  plugins: [nativeVendorPlugin],
 };
 
 /** Webview bundle — runs in VS Code's sandboxed browser context */
