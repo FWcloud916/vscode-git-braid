@@ -1,0 +1,101 @@
+name: Publish to VS Code Marketplace
+
+# Triggered by a version tag push: git tag v0.1.0 && git push --tags
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Phase 1 — Build all 4 platform .node binaries (reuses build-napi.yml).
+  build-napi:
+    uses: ./.github/workflows/build-napi.yml
+
+  # Phase 2 — Package and publish one .vsix per platform, all on ubuntu-latest.
+  # vsce packaging is cross-platform (the .node is just a file being zipped).
+  package-publish:
+    needs: build-napi
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - vsceTarget: darwin-arm64
+            napiName: darwin-arm64
+            rustTriple: aarch64-apple-darwin
+          - vsceTarget: darwin-x64
+            napiName: darwin-x64
+            rustTriple: x86_64-apple-darwin
+          - vsceTarget: linux-x64
+            napiName: linux-x64-gnu
+            rustTriple: x86_64-unknown-linux-gnu
+          - vsceTarget: win32-x64
+            napiName: win32-x64-msvc
+            rustTriple: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Download the prebuilt .node for this platform.
+      - name: Download native prebuild
+        uses: actions/download-artifact@v4
+        with:
+          name: git-braid-native-${{ matrix.platform.rustTriple }}
+          path: bindings/napi/
+
+      # Safety: confirm the expected .node filename exists before packaging.
+      - name: Verify .node filename
+        run: |
+          NODE_FILE="bindings/napi/git-braid-native.${{ matrix.platform.napiName }}.node"
+          if [ ! -f "$NODE_FILE" ]; then
+            echo "ERROR: expected $NODE_FILE — got:"
+            ls bindings/napi/*.node
+            exit 1
+          fi
+          echo "✓ $NODE_FILE present"
+
+      # Build TS + populate native/ (vendor-native copies loader + .node).
+      - name: Build and vendor native
+        run: pnpm run build
+
+      # Package the per-platform .vsix.
+      - name: Package .vsix
+        run: |
+          pnpm exec vsce package \
+            --target ${{ matrix.platform.vsceTarget }} \
+            --pre-release \
+            -o git-braid-${{ matrix.platform.vsceTarget }}.vsix
+
+      # Publish to the Marketplace.
+      # Requires VSCE_PAT repo secret (Azure DevOps token, Marketplace → Manage scope).
+      - name: Publish to Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          pnpm exec vsce publish \
+            --target ${{ matrix.platform.vsceTarget }} \
+            --pre-release \
+            --packagePath git-braid-${{ matrix.platform.vsceTarget }}.vsix
+
+      # Keep the .vsix as a release artifact (optional but useful for debugging).
+      - name: Upload .vsix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: git-braid-${{ matrix.platform.vsceTarget }}.vsix
+          path: git-braid-${{ matrix.platform.vsceTarget }}.vsix
+          retention-days: 30

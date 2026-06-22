@@ -3,6 +3,7 @@ name: Build napi prebuilds
 # Run this early to validate the CI matrix — per plan §9:
 # "Validate CI prebuild matrix in M1, don't defer to the end."
 on:
+  workflow_call:  # reusable from publish.yml
   push:
     branches: [main]
     tags:
