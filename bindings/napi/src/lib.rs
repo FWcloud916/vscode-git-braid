@@ -23,6 +23,11 @@
 
 #![deny(clippy::all)]
 
+use git_braid_core::{
+    layout::layout,
+    serialize::encode_batch,
+    walk::{walk_commits, WalkOptions},
+};
 use napi_derive::napi;
 
 /// Request a batch of commit graph rows from the Rust core.
@@ -35,13 +40,41 @@ use napi_derive::napi;
 ///
 /// # Returns
 ///
-/// A `Buffer` containing the binary-encoded batch (see `serialize.rs`).
+/// A `Buffer` containing the binary-encoded batch (see `crates/core/src/serialize.rs`).
+/// The webview reads this with `DataView` / typed-array views without JSON parsing.
 ///
-/// # Status
+/// # Paging (M1 implementation)
 ///
-/// **Stub** — returns an empty buffer until M0/M1 are implemented.
+/// M1 re-walks `offset + limit` commits on every call and slices the layout result.
+/// This is correct but not optimal for large repos.
+///
+/// TODO(M2): accept a serialised `BoundaryState` token so the host can resume layout
+/// from the previous batch boundary instead of recomputing from the repository root.
 #[napi]
-pub fn get_graph_batch(_repo_path: String, _offset: u32, _limit: u32) -> napi::Result<Vec<u8>> {
-    // TODO(M1): call git_braid_core::walk_commits + layout + encode_batch
-    Ok(Vec::new())
+pub fn get_graph_batch(repo_path: String, offset: u32, limit: u32) -> napi::Result<Vec<u8>> {
+    let path = std::path::Path::new(&repo_path);
+
+    // Walk enough commits to cover the requested window.
+    // saturating_add guards against (offset + limit) overflowing usize.
+    let walk_limit = (offset as usize).saturating_add(limit as usize);
+    let opts = WalkOptions {
+        limit: if walk_limit > 0 {
+            Some(walk_limit)
+        } else {
+            None
+        },
+        ..Default::default()
+    };
+
+    let commits = walk_commits(path, &opts)
+        .map_err(|e| napi::Error::from_reason(format!("walk_commits: {e}")))?;
+
+    // Compute layout for all walked commits (O(n·L) where L = concurrent branch count).
+    let (rows, _boundary) = layout(&commits, None);
+
+    // Slice to the requested window; silently clamp if offset is past the end.
+    let start = (offset as usize).min(rows.len());
+    let batch = &rows[start..];
+
+    Ok(encode_batch(batch, &[]))
 }
