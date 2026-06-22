@@ -16,8 +16,8 @@
  *
  * # Status
  *
- * **Stub** — Phase 2 implementation target.
- * Every exported function currently throws `NotImplemented`.
+ * Phase 2 in progress. Implemented operations are in the "Implemented write
+ * operations" section; remaining stubs still throw `NotImplemented`.
  */
 
 import { execFile } from "child_process";
@@ -40,11 +40,26 @@ export async function runGit(
   return execFileAsync("git", [...args], { cwd });
 }
 
-// ── Phase 2 stubs ──────────────────────────────────────────────────────────
+// ── Error classification ────────────────────────────────────────────────────
 
-export async function checkout(_ref: string, _cwd: string): Promise<void> {
-  throw new NotImplementedError("checkout");
+/**
+ * Returns `true` when git's stderr/stdout contains conflict markers.
+ *
+ * A conflict is an **expected, non-fatal** outcome for `merge`, `cherry-pick`,
+ * and `rebase` — it should be surfaced as a warning modal, not a red error
+ * toast. Separating classification from UI keeps this testable without VS Code.
+ */
+export function isConflictError(output: string): boolean {
+  return /CONFLICT|conflict|fix conflicts|needs merge/i.test(output);
 }
+
+// ── Implemented write operations ────────────────────────────────────────────
+
+export async function checkout(ref: string, cwd: string): Promise<void> {
+  await runGit(["checkout", ref], cwd);
+}
+
+// ── Phase 2 stubs ──────────────────────────────────────────────────────────
 
 export async function createBranch(_name: string, _from: string, _cwd: string): Promise<void> {
   throw new NotImplementedError("createBranch");

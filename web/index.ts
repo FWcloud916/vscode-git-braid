@@ -13,6 +13,8 @@
  *   `{ type: "batch", payload: ArrayBuffer }` — BRAI v2 binary batch
  *   `{ type: "commitDetail", detail: CommitDetailPayload }` — single commit detail
  *   `{ type: "findResults", query: string, matches: FindMatchPayload[] }` — search results
+ *   `{ type: "config", dateFormat: string, palette: string[] }` — display settings
+ *   `{ type: "reload" }` — clear rows and re-request from offset 0 (after write op)
  *   `{ type: "error", message: string }`
  *
  * Webview → Host:
@@ -20,11 +22,13 @@
  *   `{ type: "requestBatch", offset: number, limit: number }` — paging
  *   `{ type: "selectCommit", oid: string }` — user clicked a row
  *   `{ type: "openDiff", filePath, oldOid, newOid, status }` — file row clicked
+ *   `{ type: "action", op: GitActionOp, oid: string, refs: ActionRef[] }` — write op
  */
 
 import { CanvasRenderer } from "./renderer/canvas";
-import { decodeBatch } from "./renderer/decode";
+import { decodeBatch, REF_KIND_LOCAL_BRANCH, type DecodedRef } from "./renderer/decode";
 import { formatRelative } from "./format";
+import { showContextMenu, type MenuItem } from "./ui/contextMenu";
 
 // ── VS Code API ────────────────────────────────────────────────────────────────
 
@@ -107,6 +111,63 @@ function escHtml(s: string): string {
 
 function firstLine(s: string): string {
   return s.split("\n")[0] ?? s;
+}
+
+// ── Write-op types ────────────────────────────────────────────────────────────
+
+/**
+ * All git write operations that can be requested from the webview.
+ * Must stay in sync with the `GitActionOp` type in `src/webviewBridge.ts`.
+ */
+type GitActionOp =
+  | "checkout"
+  | "createBranch"
+  | "deleteBranch"
+  | "merge"
+  | "rebase"
+  | "cherryPick"
+  | "revert"
+  | "resetSoft"
+  | "resetMixed"
+  | "resetHard"
+  | "createTag"
+  | "deleteTag"
+  | "stashApply"
+  | "stashPop"
+  | "stashDrop";
+
+/** A ref descriptor sent with an action request. */
+interface ActionRef { name: string; kind: number }
+
+/**
+ * Build context-menu items for the right-clicked commit row.
+ *
+ * Slice 1: checkout only (branch-name if available, OID otherwise).
+ * Subsequent slices add create/delete branch, merge, rebase, etc.
+ */
+function buildMenuItems(info: { oidHex: string; refs: DecodedRef[] }): MenuItem[] {
+  const items: MenuItem[] = [];
+  const actionRefs: ActionRef[] = info.refs.map(r => ({ name: r.name, kind: r.kind }));
+
+  // Checkout: if a local branch sits on this commit, check out by name
+  // (switches the branch pointer); otherwise check out the OID as a
+  // detached HEAD.
+  const localBranch = info.refs.find(r => r.kind === REF_KIND_LOCAL_BRANCH);
+  const checkoutLabel = localBranch !== undefined
+    ? `Checkout ${localBranch.name}`
+    : "Checkout this commit";
+
+  items.push({
+    label: checkoutLabel,
+    action: () => postToHost({
+      type: "action",
+      op: "checkout" as GitActionOp,
+      oid: info.oidHex,
+      refs: actionRefs,
+    }),
+  });
+
+  return items;
 }
 
 /** Colour for the status badge (A/M/D). */
@@ -371,6 +432,11 @@ function init(): void {
     postToHost({ type: "selectCommit", oid: oidHex });
   };
 
+  // Right-click: build the context menu from the row's refs and show it.
+  renderer.onContextMenu = (info) => {
+    showContextMenu(info.clientX, info.clientY, buildMenuItems(info));
+  };
+
   // ── Message handler ───────────────────────────────────────────────────────
   window.addEventListener("message", (event: MessageEvent) => {
     const message = event.data as { type: string; [k: string]: unknown };
@@ -444,6 +510,20 @@ function init(): void {
         if (hits.length > 0) {
           revealMatch();
         }
+        break;
+      }
+
+      case "reload": {
+        // A write operation succeeded — reset the graph and reload from scratch.
+        // Re-using the existing batch-request flow means no new protocol needed
+        // on the native side (getGraphBatch already re-walks from root every call).
+        loadedCount = 0;
+        inFlight = true;
+        reachedEnd = false;
+        pendingReveal = null;
+        renderer.reset();
+        clearFind();
+        postToHost({ type: "requestBatch", offset: 0, limit: PAGE_SIZE });
         break;
       }
 

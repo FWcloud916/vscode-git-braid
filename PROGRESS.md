@@ -4,7 +4,25 @@
 
 ---
 
-## Current milestone: M3 — Commit detail / diff / refs / find
+## Current milestone: M4 — Write ops + context menu
+
+**Goal:** Right-click a commit → checkout / create+delete branch/tag / merge / rebase / cherry-pick / revert / reset / stash ops. All writes via `git` CLI with friendly stderr.
+
+**Status:** 🔲 In progress — Slice 1 done
+
+### M4 Slice 1 — Context-menu infrastructure + checkout
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `web/ui/contextMenu.ts` (new) — DOM popup menu, VS Code CSS vars, auto-dismiss | ✅ | No deps; CSP-safe (inline styles) |
+| `web/renderer/canvas.ts` — `onContextMenu` callback + `contextmenu` listener + `reset()` | ✅ | y→row reuses click-handler math |
+| `web/index.ts` — `buildMenuItems`, `renderer.onContextMenu`, `reload` message | ✅ | Slice 1: checkout only |
+| `src/gitActions.ts` — `checkout` impl + `isConflictError` pure helper | ✅ | `git checkout <ref>`; helper exported for tests |
+| `src/webviewBridge.ts` — `GitActionOp` type, `action`/`reload` messages, `_handleAction`, `_presentGitError`, output channel | ✅ | Conflict path + Show-details dump to output channel |
+
+---
+
+## Previous milestone: M3 — Commit detail / diff / refs / find
 
 **Goal:** Click a commit → see metadata, ref chips, changed files, and diffs.
 
@@ -116,7 +134,7 @@
 | **M1** | Layout algorithm + napi binding → host gets layout | 1 week | ✅ |
 | **M2 ⚑** | Canvas virtualised renderer → **MVP demo** | 3–5 days | ✅ |
 | M3 | Commit detail / diff / refs / find | 2–3 weeks | ✅ S1–S4 done |
-| M4 | Write ops + context menu | 3–4 weeks | 🔲 |
+| M4 | Write ops + context menu | 3–4 weeks | 🔲 S1 done |
 | M5 | First AI feature (release-notes generation) | 2 weeks | 🔲 |
 | M6 | Marketplace publish (preview) | — | 🔲 |
 
@@ -145,4 +163,4 @@ Git Graph + VS Code built-in, stop here.
 
 ---
 
-_Updated: 2026-06-22 · M3 complete — Slices 1–4: refs/detail panel + file-list/diff + find + multi-repo/settings_
+_Updated: 2026-06-22 · M4 started — Slice 1 complete: context-menu infra + checkout_

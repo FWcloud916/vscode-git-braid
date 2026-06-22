@@ -34,6 +34,7 @@
 
 import {
   type DecodedRow,
+  type DecodedRef,
   type DecodedSegment,
   shortOid,
   SEG_KIND_STRAIGHT,
@@ -164,6 +165,18 @@ export class CanvasRenderer {
   onSelect?: ((oidHex: string) => void) | undefined;
 
   /**
+   * Called when the user right-clicks a commit row.
+   * Receives the full 40-char OID, the decoded refs on the row, and the
+   * pointer position (client coordinates) for positioning the context menu.
+   */
+  onContextMenu?: ((info: {
+    oidHex: string;
+    refs: DecodedRef[];
+    clientX: number;
+    clientY: number;
+  }) => void) | undefined;
+
+  /**
    * @param _container  The element that acts as the scroll viewport. It must
    *   have a defined height (e.g. `height:100%` filling the webview body).
    *   The constructor sets `overflow:auto` on it and builds the DOM tree inside.
@@ -205,6 +218,28 @@ export class CanvasRenderer {
         const r = this._rows[row];
         if (r) {
           this.onSelect?.(fullOid(r.oid));
+        }
+      }
+    });
+
+    // Right-click selects the row and fires the context-menu callback.
+    // The callback (set in web/index.ts) builds and shows the DOM popup.
+    _container.addEventListener("contextmenu", (e: MouseEvent) => {
+      const rect = this._canvas.getBoundingClientRect();
+      const y = e.clientY - rect.top + this._scrollTop;
+      const row = Math.floor(y / ROW_HEIGHT);
+      if (row >= 0 && row < this._totalRows) {
+        e.preventDefault();
+        this._selectedRow = row;
+        this._paint();
+        const r = this._rows[row];
+        if (r) {
+          this.onContextMenu?.({
+            oidHex: fullOid(r.oid),
+            refs: r.refs,
+            clientX: e.clientX,
+            clientY: e.clientY,
+          });
         }
       }
     });
@@ -289,6 +324,30 @@ export class CanvasRenderer {
       0,
       index * ROW_HEIGHT - this._container.clientHeight / 2 + ROW_HEIGHT / 2,
     );
+  }
+
+  /**
+   * Reset all renderer state.
+   *
+   * Called when the graph must be reloaded from scratch after a write
+   * operation. Clears the row list, paging state, selection, and find
+   * highlights, then repaints the empty canvas.
+   *
+   * After calling `reset()` the caller must send a fresh `requestBatch`
+   * to repopulate the renderer. The append-only stability invariant
+   * (layout-spec §5 invariant 5) is restored by this reset.
+   */
+  reset(): void {
+    this._rows = [];
+    this._totalRows = 0;
+    this._maxLane = 0;
+    this._selectedRow = -1;
+    this._atEnd = false;
+    this._pendingMore = false;
+    this._matchRows.clear();
+    this._currentMatch = -1;
+    this._inner.style.height = "0";
+    this._paint();
   }
 
   dispose(): void {

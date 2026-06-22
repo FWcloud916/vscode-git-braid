@@ -15,25 +15,56 @@
  * Host → Webview:
  *   `{ type: "batch", payload: ArrayBuffer }` — BRAI v2 binary batch
  *   `{ type: "commitDetail", detail: CommitDetail }` — single commit full detail
+ *   `{ type: "findResults", query, matches }` — full-history search results
+ *   `{ type: "config", dateFormat, palette }` — display settings
+ *   `{ type: "reload" }` — clear rows and re-request from offset 0 (after write op)
  *   `{ type: "error", message: string }`
  *
  * Webview → Host:
- *   `{ type: "requestBatch", offset: number, limit: number }`
  *   `{ type: "ready" }` — sent once the webview JS has initialised
+ *   `{ type: "requestBatch", offset: number, limit: number }` — paging
  *   `{ type: "selectCommit", oid: string }` — user clicked a commit row
+ *   `{ type: "openDiff", filePath, oldOid, newOid, status }` — file diff request
+ *   `{ type: "action", op: GitActionOp, oid, refs }` — git write op request
  */
 
 import * as path from "path";
 import * as vscode from "vscode";
 import { getGraphBatch, getCommitDetail, findCommits, type CommitDetail, type FindMatch } from "@git-braid/native";
 import { buildDiffUri } from "./diffProvider";
+import { checkout, isConflictError } from "./gitActions";
+
+/**
+ * All git write operations that can be requested from the webview.
+ * Must stay in sync with the `GitActionOp` type in `web/index.ts`.
+ */
+export type GitActionOp =
+  | "checkout"
+  | "createBranch"
+  | "deleteBranch"
+  | "merge"
+  | "rebase"
+  | "cherryPick"
+  | "revert"
+  | "resetSoft"
+  | "resetMixed"
+  | "resetHard"
+  | "createTag"
+  | "deleteTag"
+  | "stashApply"
+  | "stashPop"
+  | "stashDrop";
+
+/** A ref descriptor included with an action request. */
+interface ActionRef { name: string; kind: number }
 
 /** Messages the webview can send to the extension host. */
 type WebviewMessage =
   | { type: "ready" }
   | { type: "requestBatch"; offset: number; limit: number }
   | { type: "selectCommit"; oid: string }
-  | { type: "openDiff"; filePath: string; oldOid: string; newOid: string; status: string };
+  | { type: "openDiff"; filePath: string; oldOid: string; newOid: string; status: string }
+  | { type: "action"; op: GitActionOp; oid: string; refs: ActionRef[] };
 
 /** Messages the extension host can send to the webview. */
 type HostMessage =
@@ -41,11 +72,15 @@ type HostMessage =
   | { type: "commitDetail"; detail: CommitDetail }
   | { type: "findResults"; query: string; matches: FindMatch[] }
   | { type: "config"; dateFormat: string; palette: string[] }
+  | { type: "reload" }
+  | { type: "actionResult"; op: string; ok: boolean; message?: string }
   | { type: "error"; message: string };
 
 export class WebviewBridge implements vscode.Disposable {
   private readonly _panel: vscode.WebviewPanel;
   private readonly _disposables: vscode.Disposable[] = [];
+  // Lazy output channel for surfacing full git stderr to the user on demand.
+  private _outputChannel: vscode.OutputChannel | undefined;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -133,6 +168,9 @@ export class WebviewBridge implements vscode.Disposable {
         break;
       case "openDiff":
         void this._openDiff(message.filePath, message.oldOid, message.newOid, message.status);
+        break;
+      case "action":
+        void this._handleAction(message);
         break;
     }
   }
@@ -223,6 +261,87 @@ export class WebviewBridge implements vscode.Disposable {
       const message = err instanceof Error ? err.message : String(err);
       await this._postMessage({ type: "error", message });
     }
+  }
+
+  /**
+   * Dispatch a git write-operation request from the webview.
+   *
+   * 1. Perform any required host-side confirmation or text input.
+   * 2. Call the appropriate `gitActions` function with `this._repoPath` as cwd.
+   * 3. On success: post `{ type: "reload" }` so the webview resets + re-fetches.
+   * 4. On failure: call `_presentGitError` (friendly modal + optional log dump).
+   */
+  private async _handleAction(
+    msg: Extract<WebviewMessage, { type: "action" }>,
+  ): Promise<void> {
+    try {
+      switch (msg.op) {
+        case "checkout": {
+          // Prefer a local branch name (tracks the branch pointer) over a
+          // detached OID checkout.
+          const branchRef = msg.refs.find(r => r.kind === 0 /* LOCAL_BRANCH */);
+          const target = branchRef !== undefined ? branchRef.name : msg.oid;
+          await checkout(target, this._repoPath);
+          break;
+        }
+        default:
+          // Not yet implemented in this slice — silently ignore.
+          return;
+      }
+      await this._postMessage({ type: "reload" });
+    } catch (err) {
+      await this._presentGitError(msg.op, err);
+    }
+  }
+
+  /**
+   * Surface a git write-op failure to the user in a friendly way.
+   *
+   * - **Conflicts** (merge/cherry-pick/rebase stopping mid-op) are expected
+   *   outcomes. They get an informational warning modal and still trigger a
+   *   `reload` because the working tree + HEAD may have changed.
+   * - **Hard failures** show a one-line error toast. "Show details" dumps the
+   *   full stderr to the "Git Braid" output channel so power users can inspect.
+   */
+  private async _presentGitError(op: string, err: unknown): Promise<void> {
+    // `execFileAsync` rejection is an `Error` with `.stderr` and `.stdout`.
+    type ExecErr = Error & { stderr?: string; stdout?: string };
+    const asExec = err instanceof Error ? (err as ExecErr) : undefined;
+    const stderr = asExec?.stderr ?? (err instanceof Error ? err.message : String(err));
+    const stdout = asExec?.stdout ?? "";
+    const combined = `${stderr} ${stdout}`.trim();
+
+    if (isConflictError(combined)) {
+      // Conflict = non-fatal: warn the user and reload so the graph reflects
+      // the partial state (e.g. MERGE_HEAD created by `git merge`).
+      void vscode.window.showWarningMessage(
+        `Git Braid: ${op} stopped due to conflicts — ` +
+        `resolve them in your editor, then commit.`,
+      );
+      await this._postMessage({ type: "reload" });
+      return;
+    }
+
+    const firstLine = stderr.split("\n")[0] ?? stderr;
+    const choice = await vscode.window.showErrorMessage(
+      `Git Braid: ${op} failed — ${firstLine}`,
+      "Show details",
+    );
+    if (choice === "Show details") {
+      const ch = this._getOutputChannel();
+      ch.appendLine(`=== ${op} error ===`);
+      ch.appendLine(stderr || String(err));
+      ch.show();
+    }
+  }
+
+  /** Return (creating on first use) the shared "Git Braid" output channel. */
+  private _getOutputChannel(): vscode.OutputChannel {
+    if (this._outputChannel === undefined) {
+      this._outputChannel = vscode.window.createOutputChannel("Git Braid");
+      this._disposables.push(this._outputChannel);
+    }
+    return this._outputChannel;
   }
 
   private async _postMessage(message: HostMessage): Promise<void> {
