@@ -26,10 +26,26 @@
 use git_braid_core::{
     layout::layout,
     serialize::encode_batch,
-    walk::{find_commits as core_find_commits, walk_commits, SortOrder, WalkOptions},
+    walk::{
+        discover_repo as core_discover_repo, find_commits as core_find_commits, walk_commits,
+        SortOrder, WalkOptions,
+    },
 };
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
+
+/// Resolve `path` to its git repository's worktree root.
+///
+/// Walks parent directories upward (via gitoxide's discovery logic) until a
+/// `.git` directory is found. Returns the canonical worktree root as a string,
+/// or `null` if `path` is not inside a git repository.
+///
+/// This is a **read-path** helper — gitoxide is used, no `git` subprocess is
+/// spawned.
+#[napi]
+pub fn discover_repo(path: String) -> Option<String> {
+    core_discover_repo(std::path::Path::new(&path)).map(|p| p.to_string_lossy().into_owned())
+}
 
 /// Request a batch of commit graph rows from the Rust core.
 ///

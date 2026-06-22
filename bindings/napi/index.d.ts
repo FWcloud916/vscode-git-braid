@@ -5,6 +5,18 @@
  */
 
 /**
+ * Resolve `path` to its git repository's worktree root.
+ *
+ * Walks parent directories upward (via gitoxide's discovery logic) until a
+ * `.git` directory is found. Returns the canonical worktree root as a string,
+ * or `null` if `path` is not inside a git repository.
+ *
+ * This is a **read-path** helper — gitoxide is used, no `git` subprocess is
+ * spawned.
+ */
+export declare function discoverRepo(path: string): string | null
+
+/**
  * Request a batch of commit graph rows from the Rust core.
  *
  * # Arguments

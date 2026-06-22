@@ -37,7 +37,7 @@ if (!nativeAddon) {
         "Run `pnpm run build:napi:debug` to build it.",
     );
   };
-  nativeAddon = { getGraphBatch: notBuilt, getCommitDetail: notBuilt, getBlob: notBuilt, findCommits: notBuilt };
+  nativeAddon = { discoverRepo: notBuilt, getGraphBatch: notBuilt, getCommitDetail: notBuilt, getBlob: notBuilt, findCommits: notBuilt };
 }
 
 module.exports = nativeAddon;

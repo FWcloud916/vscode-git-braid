@@ -307,6 +307,27 @@ pub fn find_commits(
     Ok(results)
 }
 
+// ── Repository discovery ─────────────────────────────────────────────────────
+
+/// Resolve `path` (a worktree, `.git` directory, or **any subdirectory** of a
+/// worktree) to the repository's canonical worktree root.
+///
+/// Returns `None` if `path` is not inside a git repository.
+/// For bare repositories, the `.git` directory path is returned instead of a
+/// worktree root (bare repos have no worktree).
+///
+/// This is a **read-path** operation — gitoxide's upward directory walk is
+/// used; no `git` subprocess is spawned.
+pub fn discover_repo(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let repo = gix::discover(path).ok()?;
+    // `work_dir()` is `None` for bare repos — fall back to the git directory.
+    Some(
+        repo.work_dir()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| repo.git_dir().to_path_buf()),
+    )
+}
+
 /// Classify a full ref name (e.g. `refs/heads/main`) into its [`RefKind`] and
 /// display name. Returns `None` for non-UTF-8 ref names (skipped).
 fn classify_ref(full_name: &BStr) -> Option<(RefKind, String)> {

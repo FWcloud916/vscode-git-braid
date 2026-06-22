@@ -100,11 +100,6 @@ const OVERSCAN = 8;
 /** How many unloaded rows from the bottom trigger `onNeedMore`. */
 const PREFETCH_THRESHOLD = 50;
 
-/** Return the palette hex string for a given colour id (wraps around palette). */
-function paletteColor(id: number): string {
-  return PALETTE[id % PALETTE.length] ?? "#6A9FE6";
-}
-
 /** Return the chip colour for a given RefKind (matches decode.ts REF_KIND_*). */
 function refChipColor(kind: number): string {
   switch (kind) {
@@ -151,6 +146,10 @@ export class CanvasRenderer {
   // Find state.
   private _matchRows = new Set<number>();
   private _currentMatch = -1;
+
+  // Per-instance palette (defaults to the module-level PALETTE; overridable via
+  // setPalette so the host can push a user-configured colour cycle).
+  private _palette: readonly string[] = PALETTE;
 
   /**
    * Called when more rows are needed (visible window nearing the loaded tail).
@@ -271,6 +270,17 @@ export class CanvasRenderer {
   }
 
   /**
+   * Override the lane colour cycle.
+   *
+   * `colors` is an ordered array of CSS colour strings. Empty array resets to
+   * the built-in module-level `PALETTE`. Triggers a repaint.
+   */
+  setPalette(colors: string[]): void {
+    this._palette = colors.length > 0 ? colors : PALETTE;
+    this._paint();
+  }
+
+  /**
    * Scroll the row at `index` to the vertical centre of the viewport.
    * The existing `scroll` listener repaints automatically.
    */
@@ -286,6 +296,11 @@ export class CanvasRenderer {
   }
 
   // ── Private ──────────────────────────────────────────────────────────────
+
+  /** Return the colour string for a lane/segment colour id from the instance palette. */
+  private _paletteColor(id: number): string {
+    return this._palette[id % this._palette.length] ?? "#6A9FE6";
+  }
 
   private _onResize(): void {
     const dpr = window.devicePixelRatio ?? 1;
@@ -387,7 +402,7 @@ export class CanvasRenderer {
 
       const y = i * ROW_HEIGHT - scrollTop + ROW_HEIGHT / 2;
       const x = PAD_X + row.lane * LANE_WIDTH;
-      const color = paletteColor(row.color);
+      const color = this._paletteColor(row.color);
 
       // Filled circle.
       this._ctx.beginPath();
@@ -474,7 +489,7 @@ export class CanvasRenderer {
     const x2 = PAD_X + seg.toLane   * LANE_WIDTH;
 
     this._ctx.beginPath();
-    this._ctx.strokeStyle = paletteColor(seg.color);
+    this._ctx.strokeStyle = this._paletteColor(seg.color);
     this._ctx.lineWidth   = 1.5;
 
     if (seg.kind === SEG_KIND_STRAIGHT) {

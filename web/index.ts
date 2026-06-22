@@ -24,6 +24,7 @@
 
 import { CanvasRenderer } from "./renderer/canvas";
 import { decodeBatch } from "./renderer/decode";
+import { formatRelative } from "./format";
 
 // ── VS Code API ────────────────────────────────────────────────────────────────
 
@@ -81,7 +82,18 @@ interface FileChangePayload {
   newOid: string;
 }
 
+// ── Date formatting ───────────────────────────────────────────────────────────
+
+/**
+ * Current display format for commit timestamps, set by the `config` host message.
+ * Defaults to "absolute" until the host pushes configuration.
+ */
+let dateFormat: "absolute" | "relative" = "absolute";
+
 function formatDate(epochSeconds: number): string {
+  if (dateFormat === "relative") {
+    return formatRelative(epochSeconds, Date.now());
+  }
   return new Date(epochSeconds * 1000).toLocaleString();
 }
 
@@ -393,6 +405,18 @@ function init(): void {
           console.error("[Git Braid] failed to decode batch:", err);
         }
         inFlight = false;
+        break;
+      }
+
+      case "config": {
+        const fmt = message["dateFormat"] as string | undefined;
+        if (fmt === "relative" || fmt === "absolute") {
+          dateFormat = fmt;
+        }
+        const palette = message["palette"] as string[] | undefined;
+        if (palette) {
+          renderer.setPalette(palette);
+        }
         break;
       }
 

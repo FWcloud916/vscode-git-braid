@@ -26,6 +26,11 @@
         "command": "gitBraid.find",
         "title": "Git Braid: Find Commit",
         "icon": "$(search)"
+      },
+      {
+        "command": "gitBraid.selectRepo",
+        "title": "Git Braid: Switch Repository",
+        "icon": "$(repo)"
       }
     ],
     "configuration": {
@@ -38,10 +43,26 @@
           "maximum": 5000,
           "description": "Number of commits to load on initial graph open."
         },
+        "gitBraid.dateFormat": {
+          "type": "string",
+          "enum": ["absolute", "relative"],
+          "default": "absolute",
+          "enumDescriptions": [
+            "Locale date-time string (e.g. 6/22/2026, 3:14 PM).",
+            "Relative time (e.g. 3 days ago). Falls back to absolute for dates older than ~30 days."
+          ],
+          "description": "How commit timestamps are displayed in the detail panel."
+        },
+        "gitBraid.graphColors": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Override the graph lane colour cycle (array of CSS colour strings, e.g. [\"#ff6b6b\", \"#4ecdc4\"]). Leave empty to use the built-in palette."
+        },
         "gitBraid.ai.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable AI-assisted features (opt-in). When enabled, commit data may be sent to an LLM provider — see the privacy notice."
+          "description": "Enable AI-assisted features (opt-in, Phase 3 — not yet active). When enabled, commit data may be sent to an LLM provider — see the privacy notice."
         }
       }
     },
@@ -49,6 +70,10 @@
       "scm/title": [
         {
           "command": "gitBraid.openGraph",
+          "group": "navigation"
+        },
+        {
+          "command": "gitBraid.selectRepo",
           "group": "navigation"
         }
       ]

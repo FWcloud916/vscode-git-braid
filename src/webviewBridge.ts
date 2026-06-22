@@ -40,6 +40,7 @@ type HostMessage =
   | { type: "batch"; payload: ArrayBuffer }
   | { type: "commitDetail"; detail: CommitDetail }
   | { type: "findResults"; query: string; matches: FindMatch[] }
+  | { type: "config"; dateFormat: string; palette: string[] }
   | { type: "error"; message: string };
 
 export class WebviewBridge implements vscode.Disposable {
@@ -119,7 +120,9 @@ export class WebviewBridge implements vscode.Disposable {
   private _handleMessage(message: WebviewMessage): void {
     switch (message.type) {
       case "ready":
-        // Webview has initialised — send the first batch of commits.
+        // Webview has initialised — push display config first (so the renderer
+        // has the correct palette before the first paint), then load commits.
+        void this._sendConfig();
         void this._sendInitialBatch();
         break;
       case "requestBatch":
@@ -132,6 +135,21 @@ export class WebviewBridge implements vscode.Disposable {
         void this._openDiff(message.filePath, message.oldOid, message.newOid, message.status);
         break;
     }
+  }
+
+  /**
+   * Send display configuration to the webview.
+   *
+   * Called before the initial batch on `ready` so the renderer has the correct
+   * palette and date format before the first paint. Reading config here (rather
+   * than caching in the constructor) means reopening the panel picks up any
+   * settings changes made since the last open.
+   */
+  private async _sendConfig(): Promise<void> {
+    const cfg = vscode.workspace.getConfiguration("gitBraid");
+    const dateFormat = cfg.get<string>("dateFormat") ?? "absolute";
+    const palette = cfg.get<string[]>("graphColors") ?? [];
+    await this._postMessage({ type: "config", dateFormat, palette });
   }
 
   /** Send the initial batch on `ready`, using the configured commit load size. */

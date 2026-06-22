@@ -8,7 +8,7 @@
 
 **Goal:** Click a commit → see metadata, ref chips, changed files, and diffs.
 
-**Status:** 🔄 In progress (Slices 1–3 ✅, Slice 4 🔲)
+**Status:** ✅ Done (Slices 1–4 complete)
 
 ### M3 Slice 1 — refs + metadata (BRAI v2) + selection + detail panel
 
@@ -34,6 +34,22 @@
 | `src/extension.ts` — register content provider | ✅ | Registered once on `activate()` |
 | `src/webviewBridge.ts` — `openDiff` message → `vscode.diff` | ✅ | |
 | `web/index.ts` — render changed-file list, click-to-diff | ✅ | A/M/D badges, delegated click listener |
+
+### M3 Slice 4 — multi-repo detection + picker + switch + dateFormat/graphColors settings
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `crates/core/src/walk.rs` — `discover_repo` (gitoxide upward walk) | ✅ | Returns canonical worktree root or `None` |
+| `crates/core/tests/discover.rs` — 3 integration tests | ✅ | root / subdir / non-repo |
+| `bindings/napi/src/lib.rs` — `discover_repo` napi fn | ✅ | No subprocess; non-repo → `null` |
+| `src/extension.ts` — `resolveRepos` / `pickRepo` / `openRepo` / `selectRepo` command | ✅ | Single-repo = no picker; multi-root = showQuickPick |
+| `src/webviewBridge.ts` — `_sendConfig` + `config` HostMessage | ✅ | Pushed before initial batch on `ready` |
+| `package.json` — `gitBraid.selectRepo` command + `dateFormat` + `graphColors` config | ✅ | Two new settings declared |
+| `web/renderer/canvas.ts` — `_palette` instance field + `setPalette` + `_paletteColor` | ✅ | Empty array reverts to built-in PALETTE |
+| `web/format.ts` — `formatRelative` (injectable `nowMs`) | ✅ | Separate module for testability |
+| `web/index.ts` — `config` message handler + `dateFormat` state + `formatDate` branching | ✅ | |
+| `web/settings.test.ts` — 10 vitest tests | ✅ | formatRelative boundaries + PALETTE invariants |
+| `docs/adr/0006-repo-discovery-strategy.md` | ✅ | Records workspace-scan vs vscode.git decision |
 
 ### M3 Slice 3 — find: full-history search + highlight + auto-load-to-match
 
@@ -99,7 +115,7 @@
 | **M0** | Rust core: log walk + topo sort → CLI print | 3–5 days | ✅ |
 | **M1** | Layout algorithm + napi binding → host gets layout | 1 week | ✅ |
 | **M2 ⚑** | Canvas virtualised renderer → **MVP demo** | 3–5 days | ✅ |
-| M3 | Commit detail / diff / refs / find | 2–3 weeks | 🔄 S1–S3 done |
+| M3 | Commit detail / diff / refs / find | 2–3 weeks | ✅ S1–S4 done |
 | M4 | Write ops + context menu | 3–4 weeks | 🔲 |
 | M5 | First AI feature (release-notes generation) | 2 weeks | 🔲 |
 | M6 | Marketplace publish (preview) | — | 🔲 |
@@ -129,4 +145,4 @@ Git Graph + VS Code built-in, stop here.
 
 ---
 
-_Updated: 2026-06-22 · M3 Slices 1–3 complete — refs/metadata/detail panel + file-list/diff + find_
+_Updated: 2026-06-22 · M3 complete — Slices 1–4: refs/detail panel + file-list/diff + find + multi-repo/settings_
