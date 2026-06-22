@@ -26,7 +26,7 @@
  */
 
 import { CanvasRenderer } from "./renderer/canvas";
-import { decodeBatch, REF_KIND_LOCAL_BRANCH, type DecodedRef } from "./renderer/decode";
+import { decodeBatch, REF_KIND_LOCAL_BRANCH, REF_KIND_TAG, type DecodedRef } from "./renderer/decode";
 import { formatRelative } from "./format";
 import { showContextMenu, type MenuItem } from "./ui/contextMenu";
 
@@ -136,36 +136,88 @@ type GitActionOp =
   | "stashPop"
   | "stashDrop";
 
-/** A ref descriptor sent with an action request. */
-interface ActionRef { name: string; kind: number }
-
 /**
  * Build context-menu items for the right-clicked commit row.
  *
- * Slice 1: checkout only (branch-name if available, OID otherwise).
- * Subsequent slices add create/delete branch, merge, rebase, etc.
+ * Menu structure:
+ *   Checkout (per branch, or generic detached)
+ *   ──────────────────────────────────────────
+ *   Create branch here…
+ *   Create tag here…
+ *   [if local branches or tags exist:]
+ *   ──────────────────────────────────────────
+ *     Delete branch <name>   (per local branch)
+ *     Delete tag <name>      (per tag)
+ *
+ * Slices 3+4 will add: merge, rebase, cherry-pick, revert, reset, stash.
  */
 function buildMenuItems(info: { oidHex: string; refs: DecodedRef[] }): MenuItem[] {
   const items: MenuItem[] = [];
-  const actionRefs: ActionRef[] = info.refs.map(r => ({ name: r.name, kind: r.kind }));
+  const localBranches = info.refs.filter(r => r.kind === REF_KIND_LOCAL_BRANCH);
+  const tags = info.refs.filter(r => r.kind === REF_KIND_TAG);
 
-  // Checkout: if a local branch sits on this commit, check out by name
-  // (switches the branch pointer); otherwise check out the OID as a
-  // detached HEAD.
-  const localBranch = info.refs.find(r => r.kind === REF_KIND_LOCAL_BRANCH);
-  const checkoutLabel = localBranch !== undefined
-    ? `Checkout ${localBranch.name}`
-    : "Checkout this commit";
+  // ── Checkout ────────────────────────────────────────────────────────────
+  // One "Checkout <name>" per local branch (by branch-pointer, not detached),
+  // or a generic "Checkout this commit" (detached HEAD) when none exist.
+  if (localBranches.length > 0) {
+    for (const b of localBranches) {
+      items.push({
+        label: `Checkout ${b.name}`,
+        action: () => postToHost({
+          type: "action", op: "checkout" as GitActionOp,
+          oid: info.oidHex, refs: [{ name: b.name, kind: b.kind }],
+        }),
+      });
+    }
+  } else {
+    items.push({
+      label: "Checkout this commit",
+      action: () => postToHost({
+        type: "action", op: "checkout" as GitActionOp,
+        oid: info.oidHex, refs: [],
+      }),
+    });
+  }
 
+  // ── Create branch / tag ─────────────────────────────────────────────────
+  items.push({ separator: true });
   items.push({
-    label: checkoutLabel,
+    label: "Create branch here…",
     action: () => postToHost({
-      type: "action",
-      op: "checkout" as GitActionOp,
-      oid: info.oidHex,
-      refs: actionRefs,
+      type: "action", op: "createBranch" as GitActionOp,
+      oid: info.oidHex, refs: [],
     }),
   });
+  items.push({
+    label: "Create tag here…",
+    action: () => postToHost({
+      type: "action", op: "createTag" as GitActionOp,
+      oid: info.oidHex, refs: [],
+    }),
+  });
+
+  // ── Delete branch / tag (conditional on refs at this commit) ───────────
+  if (localBranches.length > 0 || tags.length > 0) {
+    items.push({ separator: true });
+    for (const b of localBranches) {
+      items.push({
+        label: `Delete branch ${b.name}`,
+        action: () => postToHost({
+          type: "action", op: "deleteBranch" as GitActionOp,
+          oid: info.oidHex, refs: [{ name: b.name, kind: b.kind }],
+        }),
+      });
+    }
+    for (const t of tags) {
+      items.push({
+        label: `Delete tag ${t.name}`,
+        action: () => postToHost({
+          type: "action", op: "deleteTag" as GitActionOp,
+          oid: info.oidHex, refs: [{ name: t.name, kind: t.kind }],
+        }),
+      });
+    }
+  }
 
   return items;
 }

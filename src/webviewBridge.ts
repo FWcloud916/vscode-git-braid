@@ -32,7 +32,32 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { getGraphBatch, getCommitDetail, findCommits, type CommitDetail, type FindMatch } from "@git-braid/native";
 import { buildDiffUri } from "./diffProvider";
-import { checkout, isConflictError } from "./gitActions";
+import { checkout, createBranch, deleteBranch, createTag, deleteTag, isConflictError } from "./gitActions";
+
+/**
+ * Validate a proposed git ref name without spawning a process.
+ *
+ * This is a **client-side pre-check** — git itself is the final authority.
+ * Blocks only the most obvious invalid inputs so the `showInputBox` prompt
+ * gives immediate feedback. Returns an error string (shown in the input box)
+ * or `undefined` if the name passes the basic checks.
+ */
+function validateRefName(name: string): string | undefined {
+  if (!name.trim()) return "Name cannot be empty";
+  // Disallow: whitespace, ~, ^, :, ?, *, [, \, .., @{, leading -, trailing .
+  if (
+    /\s/.test(name) ||
+    /[~^:?*\[\\]/.test(name) ||
+    /\.\./.test(name) ||
+    /@\{/.test(name) ||
+    name.startsWith("-") ||
+    name.endsWith(".") ||
+    name.endsWith(".lock")
+  ) {
+    return "Invalid ref name — contains disallowed characters";
+  }
+  return undefined;
+}
 
 /**
  * All git write operations that can be requested from the webview.
@@ -284,6 +309,73 @@ export class WebviewBridge implements vscode.Disposable {
           await checkout(target, this._repoPath);
           break;
         }
+
+        case "createBranch": {
+          const name = await vscode.window.showInputBox({
+            prompt: "New branch name",
+            placeHolder: "e.g. feature/my-feature",
+            validateInput: validateRefName,
+          });
+          if (name === undefined) return; // user cancelled
+          await createBranch(name, msg.oid, this._repoPath);
+          break;
+        }
+
+        case "deleteBranch": {
+          const branchName = msg.refs[0]?.name;
+          if (branchName === undefined) return;
+          const confirm = await vscode.window.showWarningMessage(
+            `Delete branch "${branchName}"?`,
+            { modal: true },
+            "Delete",
+          );
+          if (confirm !== "Delete") return;
+          try {
+            await deleteBranch(branchName, this._repoPath);
+          } catch (err) {
+            type ExecErr = Error & { stderr?: string };
+            const stderr = (err instanceof Error ? (err as ExecErr).stderr : undefined) ?? "";
+            if (/not fully merged/i.test(stderr)) {
+              // Offer a force delete when git refuses the safe -d.
+              const force = await vscode.window.showWarningMessage(
+                `Branch "${branchName}" is not fully merged. Force delete anyway?`,
+                { modal: true },
+                "Force Delete",
+              );
+              if (force !== "Force Delete") return;
+              await deleteBranch(branchName, this._repoPath, true);
+              // falls through to reload below
+            } else {
+              throw err; // re-raised to outer catch → _presentGitError
+            }
+          }
+          break;
+        }
+
+        case "createTag": {
+          const tagName = await vscode.window.showInputBox({
+            prompt: "New tag name",
+            placeHolder: "e.g. v1.0.0",
+            validateInput: validateRefName,
+          });
+          if (tagName === undefined) return;
+          await createTag(tagName, msg.oid, this._repoPath);
+          break;
+        }
+
+        case "deleteTag": {
+          const tName = msg.refs[0]?.name;
+          if (tName === undefined) return;
+          const confirmTag = await vscode.window.showWarningMessage(
+            `Delete tag "${tName}"?`,
+            { modal: true },
+            "Delete",
+          );
+          if (confirmTag !== "Delete") return;
+          await deleteTag(tName, this._repoPath);
+          break;
+        }
+
         default:
           // Not yet implemented in this slice — silently ignore.
           return;
