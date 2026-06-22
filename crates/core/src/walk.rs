@@ -11,21 +11,27 @@
 //! # Ordering policy (plan §4.3)
 //!
 //! Two modes, switchable via [`SortOrder`]:
-//! - [`SortOrder::TopoDate`]: topological order, ties broken by author date
-//!   (matches `git log --topo-order`).
-//! - [`SortOrder::Date`]: pure author date order (matches `git log --date-order`).
+//! - [`SortOrder::TopoDate`]: topological order, ties broken by committer date
+//!   (matches `git log --topo-order`). Uses [`gix::traverse::commit::topo::Sorting::TopoOrder`].
+//! - [`SortOrder::Date`]: topological order with pure committer-date priority
+//!   (matches `git log --date-order`). Uses [`gix::traverse::commit::topo::Sorting::DateOrder`].
 //!
-//! # Status
-//!
-//! **Stub** — M0 implementation target. Signature is final; body is `todo!()`.
+//! Both modes guarantee the layout invariant: **every parent appears later in
+//! the returned slice than its children**. This is the fundamental contract the
+//! layout engine depends on, and why we use the dedicated topo traversal rather
+//! than a plain breadth-first rev-walk (which would not guarantee it).
 
-use crate::model::CommitIn;
+use std::collections::HashSet;
+
+use crate::model::{CommitIn, Oid};
 
 /// Which ordering policy to apply to the commit walk.
 #[derive(Debug, Clone, Copy, Default)]
 pub enum SortOrder {
+    /// Topological order, ties broken by committer date — `git log --topo-order`.
     #[default]
     TopoDate,
+    /// Topological order with committer-date priority — `git log --date-order`.
     Date,
 }
 
@@ -42,22 +48,120 @@ pub struct WalkOptions {
 /// Walk the commit graph of a git repository and return a topologically-ordered
 /// list of commits, newest first.
 ///
+/// Tips: all refs (branches, tags, remotes) + HEAD are used as starting points,
+/// deduped. This gives a full picture of the braided history across all branches.
+///
 /// `repo_path` should be the path to the `.git` directory or the worktree root
 /// (gitoxide resolves both).
+///
+/// # Ordering contract
+///
+/// The returned slice guarantees: for any commit at index `i`, all of its
+/// parents appear at some index `j > i`. This is the invariant required by
+/// [`crate::layout::layout`].
 ///
 /// # Errors
 ///
 /// Returns an error if the path is not a valid git repository or if ODB access
 /// fails.
-///
-/// # Status
-///
-/// **Unimplemented (M0)** — returns `todo!()`.
 pub fn walk_commits(
-    _repo_path: &std::path::Path,
-    _opts: &WalkOptions,
+    repo_path: &std::path::Path,
+    opts: &WalkOptions,
 ) -> Result<Vec<CommitIn>, Box<dyn std::error::Error>> {
-    // M0 implementation target.
-    // Use gix::open() → repo.rev_walk() → topo/date sort → CommitIn conversion.
-    todo!("walk_commits — implement in M0 (see docs/specs/layout-spec.md §3 and crates/core/src/walk.rs)")
+    let repo = gix::open(repo_path)?;
+
+    // ── Collect tips: all refs + HEAD, deduped ──────────────────────────────
+
+    let mut seen: HashSet<gix::ObjectId> = HashSet::new();
+    let mut tips: Vec<gix::ObjectId> = Vec::new();
+
+    // HEAD first — covers detached HEAD and the current branch tip.
+    // May fail on an unborn HEAD (fresh repo, no commits yet); skip gracefully.
+    if let Ok(head_id) = repo.head_id() {
+        let id = head_id.detach();
+        if seen.insert(id) {
+            tips.push(id);
+        }
+    }
+
+    // Iterate all refs (branches, tags, remotes, etc.).
+    // Skip broken refs; skip refs that don't peel to a commit (e.g. tree tags).
+    {
+        let refs_platform = repo.references()?;
+        for r in refs_platform.all()? {
+            let mut r = match r {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let commit_id = match r.peel_to_commit() {
+                Ok(c) => c.id,
+                Err(_) => continue,
+            };
+            if seen.insert(commit_id) {
+                tips.push(commit_id);
+            }
+        }
+    }
+
+    if tips.is_empty() {
+        // Empty repo or no commits reachable from any ref.
+        return Ok(Vec::new());
+    }
+
+    // ── Map SortOrder → topo Sorting ────────────────────────────────────────
+
+    let sorting = match opts.order {
+        SortOrder::TopoDate => gix::traverse::commit::topo::Sorting::TopoOrder,
+        SortOrder::Date => gix::traverse::commit::topo::Sorting::DateOrder,
+    };
+
+    // ── Build and run topological traversal ─────────────────────────────────
+    //
+    // `Builder::new` borrows `repo.objects` for the lifetime of the walk;
+    // both are in this stack frame so lifetimes work out.
+
+    let mut builder = gix::traverse::commit::topo::Builder::new(&repo.objects)
+        .with_tips(tips)
+        .sorting(sorting);
+
+    if opts.first_parent_only {
+        builder = builder.parents(gix::traverse::commit::Parents::First);
+    }
+
+    let walk = builder.build()?;
+
+    // ── Collect with optional limit ─────────────────────────────────────────
+
+    let limit = opts.limit.unwrap_or(usize::MAX);
+    let mut out: Vec<CommitIn> = Vec::new();
+
+    for item in walk {
+        let info = item?;
+        out.push(CommitIn {
+            oid: oid_to_fixed20(&info.id),
+            parents: info.parent_ids.iter().map(oid_to_fixed20).collect(),
+        });
+        if out.len() >= limit {
+            break;
+        }
+    }
+
+    Ok(out)
+}
+
+// ── Internal helpers ─────────────────────────────────────────────────────────
+
+/// Convert a gix `ObjectId` (20-byte SHA-1 or 32-byte SHA-256) to our
+/// fixed-size `Oid = [u8; 20]`.
+///
+/// For SHA-256 repos only the first 20 bytes are used as the layout key;
+/// the full OID is stored separately in the OID table (MVP trade-off,
+/// see `model.rs`).
+#[inline]
+fn oid_to_fixed20(id: &gix::ObjectId) -> Oid {
+    let bytes = id.as_bytes();
+    let mut out = [0u8; 20];
+    let n = bytes.len().min(20);
+    out[..n].copy_from_slice(&bytes[..n]);
+    out
 }
