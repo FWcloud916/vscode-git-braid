@@ -4,9 +4,22 @@
 
 ---
 
-## Current milestone: M1 — Layout algorithm + napi binding
+## Current milestone: M2 — Canvas virtualised renderer
 
-**Goal:** TS extension host receives binary layout batches from Rust core.
+**Goal:** Webview paints the commit graph; native scroll + incremental paging.
+
+**Status:** ✅ Done
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `web/renderer/decode.ts` — TS BRAI v1 decoder (DataView, no DOM) | ✅ | 12 tests green; mirrors Rust decode_batch |
+| `web/renderer/canvas.ts` — virtualised Canvas renderer | ✅ | Native scroll, overscan, bezier curves, merge rings, short OID text |
+| `web/index.ts` — decode + incremental paging wired | ✅ | `requestBatch` on scroll-to-bottom; in-flight guard; `markEnd` on repo tail |
+| `web/renderer/decode.test.ts` — vitest round-trip tests | ✅ | 12 tests; bad-magic / wrong-version / truncation / seg_offset coverage |
+
+---
+
+## Previous milestone: M1 — Layout algorithm + napi binding
 
 **Status:** ✅ Done
 
@@ -39,7 +52,7 @@
 |-----------|-------------|--------|--------|
 | **M0** | Rust core: log walk + topo sort → CLI print | 3–5 days | ✅ |
 | **M1** | Layout algorithm + napi binding → host gets layout | 1 week | ✅ |
-| **M2 ⚑** | Canvas virtualised renderer → **MVP demo** | 3–5 days | 🔲 |
+| **M2 ⚑** | Canvas virtualised renderer → **MVP demo** | 3–5 days | ✅ |
 | M3 | Commit detail / diff / refs / find | 2–3 weeks | 🔲 |
 | M4 | Write ops + context menu | 3–4 weeks | 🔲 |
 | M5 | First AI feature (release-notes generation) | 2 weeks | 🔲 |
@@ -70,4 +83,4 @@ Git Graph + VS Code built-in, stop here.
 
 ---
 
-_Updated: 2026-06-22 · M1 complete → M2 next (Canvas virtualised renderer / MVP demo)_
+_Updated: 2026-06-22 · M2 complete → M3 next (commit detail / diff / refs / find)_
