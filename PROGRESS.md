@@ -8,13 +8,13 @@
 
 **Goal:** `walk_commits()` prints topo-sorted commits for a real repo. CLI demo only.
 
-**Status:** 🔲 Not started
+**Status:** ✅ Done
 
 | Task | Status | Notes |
 |------|--------|-------|
-| `crates/core/src/walk.rs` — gitoxide log walk | 🔲 | Stub in place |
+| `crates/core/src/walk.rs` — gitoxide log walk | ✅ | Uses `gix::traverse::commit::topo`; 5 integration tests green |
 | `crates/core/src/layout.rs` — layout algorithm | 🔲 | Stub in place (M1 target) |
-| M0 CLI demo (binary crate) | 🔲 | |
+| M0 CLI demo (binary crate) | ✅ | `crates/core/src/bin/braid-log.rs`; run: `cargo run -p git-braid-core --bin braid-log -- <path>` |
 
 ---
 
@@ -22,7 +22,7 @@
 
 | Milestone | Description | Target | Status |
 |-----------|-------------|--------|--------|
-| **M0** | Rust core: log walk + topo sort → CLI print | 3–5 days | 🔲 |
+| **M0** | Rust core: log walk + topo sort → CLI print | 3–5 days | ✅ |
 | **M1** | Layout algorithm + napi binding → host gets layout | 1 week | 🔲 |
 | **M2 ⚑** | Canvas virtualised renderer → **MVP demo** | 3–5 days | 🔲 |
 | M3 | Commit detail / diff / refs / find | 2–3 weeks | 🔲 |
@@ -57,4 +57,4 @@ _Links will be added as work progresses._
 
 ---
 
-_Updated: 2026-06-22 · Phase 0_
+_Updated: 2026-06-22 · M0 complete → M1 next (layout algorithm)_
