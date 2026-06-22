@@ -148,6 +148,10 @@ export class CanvasRenderer {
   // Selection state (-1 = nothing selected).
   private _selectedRow = -1;
 
+  // Find state.
+  private _matchRows = new Set<number>();
+  private _currentMatch = -1;
+
   /**
    * Called when more rows are needed (visible window nearing the loaded tail).
    * Receives the current loaded row count as the `offset` for the next batch.
@@ -239,6 +243,44 @@ export class CanvasRenderer {
     this._atEnd = true;
   }
 
+  // ── Find highlight API ───────────────────────────────────────────────────
+
+  /**
+   * Highlight all matching row indices (amber tint). Replaces any prior set.
+   * Triggers a repaint.
+   */
+  setMatches(indices: number[]): void {
+    this._matchRows = new Set(indices);
+    this._paint();
+  }
+
+  /**
+   * Emphasise one match as the "current" match (stronger amber tint).
+   * Must be a value already in `setMatches`. Triggers a repaint.
+   */
+  setCurrentMatch(index: number): void {
+    this._currentMatch = index;
+    this._paint();
+  }
+
+  /** Clear all find highlights and repaint. */
+  clearFind(): void {
+    this._matchRows.clear();
+    this._currentMatch = -1;
+    this._paint();
+  }
+
+  /**
+   * Scroll the row at `index` to the vertical centre of the viewport.
+   * The existing `scroll` listener repaints automatically.
+   */
+  scrollToRow(index: number): void {
+    this._container.scrollTop = Math.max(
+      0,
+      index * ROW_HEIGHT - this._container.clientHeight / 2 + ROW_HEIGHT / 2,
+    );
+  }
+
   dispose(): void {
     this._resizeObserver.disconnect();
   }
@@ -294,7 +336,22 @@ export class CanvasRenderer {
     // X-coordinate of the OID text column (to the right of all lanes).
     const textX = PAD_X + (this._maxLane + 2) * LANE_WIDTH;
 
-    // ── 0. Selection highlight (full-width band behind everything) ────────
+    // ── 0a. Find match highlights (amber tint, behind everything) ────────
+    if (this._matchRows.size > 0) {
+      for (let i = visibleStart; i < visibleEnd; i++) {
+        if (this._matchRows.has(i)) {
+          const y = i * ROW_HEIGHT - scrollTop;
+          // Current match: stronger emphasis; other matches: softer tint.
+          this._ctx.fillStyle =
+            i === this._currentMatch
+              ? "rgba(229, 192, 123, 0.40)" // current match — stronger amber
+              : "rgba(229, 192, 123, 0.18)"; // other matches — soft amber
+          this._ctx.fillRect(0, y, cw, ROW_HEIGHT);
+        }
+      }
+    }
+
+    // ── 0b. Selection highlight (full-width band, on top of match tints) ─
     if (this._selectedRow >= visibleStart && this._selectedRow < visibleEnd) {
       const y = this._selectedRow * ROW_HEIGHT - scrollTop;
       this._ctx.fillStyle = "rgba(100, 159, 230, 0.15)"; // soft blue

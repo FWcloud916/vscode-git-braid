@@ -81,3 +81,37 @@ export declare function getCommitDetail(repoPath: string, oidHex: string): Commi
  *                   an add/delete (returns an empty Buffer in that case).
  */
 export declare function getBlob(repoPath: string, oidHex: string): Buffer
+
+/**
+ * A single search hit from `findCommits`.
+ *
+ * napi-rs maps snake_case → camelCase in TypeScript (`row_index` → `rowIndex`,
+ * `commit_time` → `commitTime`).
+ */
+export interface FindMatch {
+  /** Full 40-char lowercase hex OID of the matching commit. */
+  oid: string
+  /** Zero-based row index in the date-order walk — aligns with the paged graph. */
+  rowIndex: number
+  /** First line of the commit message (subject). */
+  subject: string
+  /** Author display name. */
+  author: string
+  /** Committer time as Unix epoch seconds. */
+  commitTime: number
+}
+
+/**
+ * Search the full commit history for commits whose subject, author name, or OID
+ * hex prefix matches `query` (case-insensitive substring / prefix).
+ *
+ * `maxResults` caps the number of hits returned (pass 0 for a built-in cap of
+ * 1 000). Returns matches in ascending row-index order.
+ *
+ * **Row-index contract:** the returned `rowIndex` values align with the rows
+ * produced by `getGraphBatch` **only** when both use the same walk order
+ * (`SortOrder::Date`, no limit). Changing the paging walk options breaks alignment.
+ *
+ * The read path is gitoxide-only — no `git` subprocess is spawned.
+ */
+export declare function findCommits(repoPath: string, query: string, maxResults: number): Array<FindMatch>

@@ -26,7 +26,7 @@
 use git_braid_core::{
     layout::layout,
     serialize::encode_batch,
-    walk::{walk_commits, SortOrder, WalkOptions},
+    walk::{find_commits as core_find_commits, walk_commits, SortOrder, WalkOptions},
 };
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
@@ -284,4 +284,73 @@ pub fn get_blob(repo_path: String, oid_hex: String) -> napi::Result<Buffer> {
         .map_err(|e| napi::Error::from_reason(format!("find_object: {e}")))?;
 
     Ok(Buffer::from(obj.detach().data))
+}
+
+/// A single search hit from [`find_commits`].
+///
+/// napi-rs maps snake_case → camelCase in TypeScript (`row_index` → `rowIndex`,
+/// `commit_time` → `commitTime`).
+#[napi(object)]
+pub struct FindMatch {
+    /// Full 40-char lowercase hex OID of the matching commit.
+    pub oid: String,
+    /// Zero-based row index in the date-order walk — aligns with the paged graph.
+    pub row_index: u32,
+    /// First line of the commit message (subject).
+    pub subject: String,
+    /// Author display name.
+    pub author: String,
+    /// Committer time as Unix epoch seconds.
+    pub commit_time: f64,
+}
+
+/// Search the full commit history for commits whose subject, author name, or OID
+/// hex prefix matches `query` (case-insensitive substring / prefix).
+///
+/// `max_results` caps the number of hits returned (pass 0 for a built-in cap of
+/// 1 000). Returns matches in ascending row-index order.
+///
+/// **Row-index contract:** the returned `row_index` values align with the rows
+/// produced by `get_graph_batch` **only** when both use the same walk order
+/// (`SortOrder::Date`, no limit). Changing the paging walk options breaks alignment.
+///
+/// The read path is gitoxide-only — no `git` subprocess is spawned.
+#[napi]
+pub fn find_commits(
+    repo_path: String,
+    query: String,
+    max_results: u32,
+) -> napi::Result<Vec<FindMatch>> {
+    let path = std::path::Path::new(&repo_path);
+
+    // MUST match the WalkOptions used in get_graph_batch (lines 61-72).
+    let opts = WalkOptions {
+        order: SortOrder::Date,
+        limit: None,
+        first_parent_only: false,
+    };
+
+    let cap = if max_results == 0 {
+        1_000
+    } else {
+        max_results as usize
+    };
+
+    let core_matches = core_find_commits(path, &query, &opts, cap)
+        .map_err(|e| napi::Error::from_reason(format!("find_commits: {e}")))?;
+
+    Ok(core_matches
+        .into_iter()
+        .map(|m| FindMatch {
+            oid: m.oid.iter().fold(String::with_capacity(40), |mut s, b| {
+                use std::fmt::Write as _;
+                let _ = write!(s, "{b:02x}");
+                s
+            }),
+            row_index: m.row_index,
+            subject: m.subject,
+            author: m.author,
+            commit_time: m.commit_time as f64,
+        })
+        .collect())
 }

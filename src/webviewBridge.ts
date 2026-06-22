@@ -25,7 +25,7 @@
 
 import * as path from "path";
 import * as vscode from "vscode";
-import { getGraphBatch, getCommitDetail, type CommitDetail } from "@git-braid/native";
+import { getGraphBatch, getCommitDetail, findCommits, type CommitDetail, type FindMatch } from "@git-braid/native";
 import { buildDiffUri } from "./diffProvider";
 
 /** Messages the webview can send to the extension host. */
@@ -39,6 +39,7 @@ type WebviewMessage =
 type HostMessage =
   | { type: "batch"; payload: ArrayBuffer }
   | { type: "commitDetail"; detail: CommitDetail }
+  | { type: "findResults"; query: string; matches: FindMatch[] }
   | { type: "error"; message: string };
 
 export class WebviewBridge implements vscode.Disposable {
@@ -86,6 +87,23 @@ export class WebviewBridge implements vscode.Disposable {
 
   reveal(): void {
     this._panel.reveal();
+  }
+
+  /**
+   * Search the full commit history for `query` and post results to the webview.
+   *
+   * Delegates to the Rust `find_commits` napi function (gitoxide, no subprocess).
+   * The webview receives `{ type: "findResults", query, matches }` and handles
+   * highlighting + navigation itself.
+   */
+  async find(query: string): Promise<void> {
+    try {
+      const matches = findCommits(this._repoPath, query, 1000);
+      await this._postMessage({ type: "findResults", query, matches });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await this._postMessage({ type: "error", message });
+    }
   }
 
   dispose(): void {

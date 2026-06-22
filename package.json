@@ -21,6 +21,11 @@
         "command": "gitBraid.openGraph",
         "title": "Git Braid: Open Graph",
         "icon": "$(git-branch)"
+      },
+      {
+        "command": "gitBraid.find",
+        "title": "Git Braid: Find Commit",
+        "icon": "$(search)"
       }
     ],
     "configuration": {
@@ -47,7 +52,15 @@
           "group": "navigation"
         }
       ]
-    }
+    },
+    "keybindings": [
+      {
+        "command": "gitBraid.find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "activeWebviewPanelId == 'gitBraid'"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.mjs",

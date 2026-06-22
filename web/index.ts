@@ -12,12 +12,14 @@
  * Host → Webview:
  *   `{ type: "batch", payload: ArrayBuffer }` — BRAI v2 binary batch
  *   `{ type: "commitDetail", detail: CommitDetailPayload }` — single commit detail
+ *   `{ type: "findResults", query: string, matches: FindMatchPayload[] }` — search results
  *   `{ type: "error", message: string }`
  *
  * Webview → Host:
  *   `{ type: "ready" }` — sent once on init
  *   `{ type: "requestBatch", offset: number, limit: number }` — paging
  *   `{ type: "selectCommit", oid: string }` — user clicked a row
+ *   `{ type: "openDiff", filePath, oldOid, newOid, status }` — file row clicked
  */
 
 import { CanvasRenderer } from "./renderer/canvas";
@@ -60,6 +62,15 @@ interface CommitDetailPayload {
   message: string;
   /** Files changed vs first parent. Sorted by path. */
   files: FileChangePayload[];
+}
+
+/** A single search hit, mirroring the napi `FindMatch` object (camelCase). */
+interface FindMatchPayload {
+  oid: string;
+  rowIndex: number;
+  subject: string;
+  author: string;
+  commitTime: number;
 }
 
 /** A single file-level change, mirroring the Rust `FileChange` napi object. */
@@ -184,10 +195,54 @@ function init(): void {
   app.style.cssText =
     "width:100%; height:100%; margin:0; padding:0; display:flex; flex-direction:row;";
 
-  // Graph viewport (left, fills remaining width).
+  // ── Graph area: wrapper (position:relative for the find bar overlay) + scroll container.
+  const graphWrapper = document.createElement("div");
+  graphWrapper.style.cssText = "flex:1; min-width:0; height:100%; position:relative; overflow:hidden;";
+  app.appendChild(graphWrapper);
+
+  // The CanvasRenderer's scroll viewport fills the wrapper.
   const graphPane = document.createElement("div");
-  graphPane.style.cssText = "flex:1; min-width:0; height:100%; overflow:hidden;";
-  app.appendChild(graphPane);
+  graphPane.style.cssText = "position:absolute; top:0; left:0; right:0; bottom:0;";
+  graphWrapper.appendChild(graphPane);
+
+  // ── Find bar overlay (position:absolute inside graphWrapper — always visible
+  //    regardless of scroll position).
+  const findBar = document.createElement("div");
+  findBar.style.cssText = [
+    "position:absolute; top:8px; right:8px; z-index:20;",
+    "display:none; align-items:center; gap:6px;",
+    "background:var(--vscode-editorWidget-background,#252526);",
+    "border:1px solid var(--vscode-editorWidget-border,#454545);",
+    "border-radius:4px; padding:4px 10px;",
+    "font-family:var(--vscode-font-family,monospace); font-size:11px;",
+    "color:var(--vscode-foreground,#ccc);",
+    "box-shadow:0 2px 8px rgba(0,0,0,.4);",
+    "white-space:nowrap;",
+  ].join(" ");
+  graphWrapper.appendChild(findBar);
+
+  const findLabel = document.createElement("span");
+  const findPrev = document.createElement("button");
+  const findNext = document.createElement("button");
+  const findClose = document.createElement("button");
+
+  for (const btn of [findPrev, findNext, findClose]) {
+    btn.style.cssText = [
+      "background:none; border:none; cursor:pointer; padding:0 2px;",
+      "color:var(--vscode-foreground,#ccc); font-size:12px; line-height:1;",
+    ].join(" ");
+  }
+  findPrev.textContent  = "◀";
+  findNext.textContent  = "▶";
+  findClose.textContent = "✕";
+  findPrev.title  = "Previous match (Shift+Enter)";
+  findNext.title  = "Next match (Enter)";
+  findClose.title = "Clear find (Escape)";
+
+  findBar.appendChild(findLabel);
+  findBar.appendChild(findPrev);
+  findBar.appendChild(findNext);
+  findBar.appendChild(findClose);
 
   // Detail panel (right side, hidden until a commit is selected).
   const detailPane = document.createElement("aside");
@@ -205,11 +260,91 @@ function init(): void {
 
   const renderer = new CanvasRenderer(graphPane);
 
+  // ── Paging state ─────────────────────────────────────────────────────────
   // Track total rows loaded so paging offsets are correct.
   let loadedCount = 0;
   // Guard against firing multiple concurrent requestBatch calls.
   let inFlight = false;
+  // Set once the repo signals no more commits.
+  let reachedEnd = false;
 
+  // ── Find state ───────────────────────────────────────────────────────────
+  let matches: FindMatchPayload[] = [];
+  let currentMatchIdx = -1;
+  // Row index we're waiting to reveal once enough rows are loaded.
+  let pendingReveal: number | null = null;
+
+  function updateFindBar(): void {
+    if (matches.length === 0) {
+      findLabel.textContent = `no matches`;
+      findPrev.disabled = true;
+      findNext.disabled = true;
+    } else {
+      findLabel.textContent = `${currentMatchIdx + 1} / ${matches.length}`;
+      findPrev.disabled = false;
+      findNext.disabled = false;
+    }
+  }
+
+  function clearFind(): void {
+    matches = [];
+    currentMatchIdx = -1;
+    pendingReveal = null;
+    renderer.clearFind();
+    findBar.style.display = "none";
+  }
+
+  function revealMatch(): void {
+    if (matches.length === 0 || currentMatchIdx < 0) return;
+    const target = matches[currentMatchIdx]!.rowIndex;
+    updateFindBar();
+
+    if (target < loadedCount) {
+      // Already loaded — scroll and highlight immediately.
+      renderer.scrollToRow(target);
+      renderer.setCurrentMatch(target);
+      pendingReveal = null;
+    } else if (!reachedEnd) {
+      // Row not yet paged in — request enough rows to reach it.
+      pendingReveal = target;
+      if (!inFlight) {
+        inFlight = true;
+        const need = target - loadedCount + 50;
+        postToHost({
+          type: "requestBatch",
+          offset: loadedCount,
+          limit: Math.max(PAGE_SIZE, need),
+        });
+      }
+    }
+    // If reachedEnd and target >= loadedCount: shouldn't happen (same walk order);
+    // leave the bar showing the label — the user can see the issue.
+  }
+
+  function gotoMatch(dir: 1 | -1): void {
+    if (matches.length === 0) return;
+    currentMatchIdx = (currentMatchIdx + dir + matches.length) % matches.length;
+    revealMatch();
+  }
+
+  // ── Find bar button wiring ────────────────────────────────────────────────
+  findPrev.addEventListener("click",  () => gotoMatch(-1));
+  findNext.addEventListener("click",  () => gotoMatch(1));
+  findClose.addEventListener("click", () => clearFind());
+
+  // ── Keyboard navigation in the find bar (also works when graph is focused).
+  window.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (findBar.style.display === "none") return;
+    if (e.key === "Escape") {
+      clearFind();
+      e.preventDefault();
+    } else if (e.key === "Enter" || e.key === "F3") {
+      gotoMatch(e.shiftKey ? -1 : 1);
+      e.preventDefault();
+    }
+  });
+
+  // ── Renderer callbacks ────────────────────────────────────────────────────
   renderer.onNeedMore = (currentCount: number) => {
     if (inFlight) return;
     inFlight = true;
@@ -220,6 +355,7 @@ function init(): void {
     postToHost({ type: "selectCommit", oid: oidHex });
   };
 
+  // ── Message handler ───────────────────────────────────────────────────────
   window.addEventListener("message", (event: MessageEvent) => {
     const message = event.data as { type: string; [k: string]: unknown };
 
@@ -237,11 +373,17 @@ function init(): void {
           loadedCount += rows.length;
           // If we got fewer rows than requested, we've reached the end of the repo.
           if (rows.length < PAGE_SIZE && rows.length !== loadedCount /* not the very first page */) {
+            reachedEnd = true;
             renderer.markEnd();
           }
           // Also mark end on truly empty response.
           if (rows.length === 0) {
+            reachedEnd = true;
             renderer.markEnd();
+          }
+          // Resume a pending reveal now that more rows are available.
+          if (pendingReveal !== null) {
+            revealMatch();
           }
         } catch (err) {
           console.error("[Git Braid] failed to decode batch:", err);
@@ -249,12 +391,34 @@ function init(): void {
         inFlight = false;
         break;
       }
+
       case "commitDetail": {
         const detail = message["detail"] as CommitDetailPayload | undefined;
         if (!detail) break;
         showDetail(detailPane, detail);
         break;
       }
+
+      case "findResults": {
+        const query   = message["query"]   as string | undefined ?? "";
+        const hits    = message["matches"] as FindMatchPayload[] | undefined ?? [];
+        matches        = hits;
+        currentMatchIdx = hits.length > 0 ? 0 : -1;
+        pendingReveal   = null;
+
+        renderer.setMatches(hits.map(m => m.rowIndex));
+
+        // Show the find bar.
+        findBar.style.display  = "flex";
+        findLabel.textContent  = `"${query}" — `;
+        updateFindBar();
+
+        if (hits.length > 0) {
+          revealMatch();
+        }
+        break;
+      }
+
       case "error":
         console.error("[Git Braid] host error:", message["message"]);
         inFlight = false;

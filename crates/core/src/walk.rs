@@ -227,6 +227,86 @@ pub fn walk_commits(
     Ok((commit_ins, metas))
 }
 
+// ── Find ─────────────────────────────────────────────────────────────────────
+
+/// A single search hit returned by [`find_commits`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FindMatch {
+    /// The 20-byte OID of the matching commit.
+    pub oid: Oid,
+    /// Zero-based index of this commit in the date-order walk.
+    ///
+    /// **Stability contract:** this index equals the row index that
+    /// [`walk_commits`] assigns when called with the same [`WalkOptions`].
+    /// Callers that need the index to align with a paged graph **must** call
+    /// [`find_commits`] with `opts.order = `[`SortOrder::Date`]` and
+    /// `opts.limit = None` — the same options that `get_graph_batch` uses.
+    pub row_index: u32,
+    /// First line of the commit message (subject).
+    pub subject: String,
+    /// Author display name.
+    pub author: String,
+    /// Committer time as Unix epoch seconds.
+    pub commit_time: i64,
+}
+
+/// Case-insensitive substring search over every commit's subject, author name,
+/// and OID hex prefix.
+///
+/// # Stability contract
+///
+/// `opts` **must** match the options used by `get_graph_batch`
+/// (`order: Date`, `limit: None`) for the returned `row_index` values to
+/// align with the paged graph. Changing either option breaks the alignment.
+///
+/// # Cost
+///
+/// This performs a full-history walk (one `walk_commits` pass with `limit: None`),
+/// decoding every commit's subject and author. For typical repos (< 100k commits)
+/// this is fast enough for a user-initiated query; a future slice can cache the
+/// walk result to avoid the re-decode.
+///
+/// # Returns
+///
+/// Matches in ascending `row_index` order, capped at `max_results`.
+/// Returns an empty `Vec` for a blank or whitespace-only query.
+pub fn find_commits(
+    repo_path: &std::path::Path,
+    query: &str,
+    opts: &WalkOptions,
+    max_results: usize,
+) -> Result<Vec<FindMatch>, Box<dyn std::error::Error>> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let (_commits, metas) = walk_commits(repo_path, opts)?;
+
+    let mut results: Vec<FindMatch> = Vec::new();
+    for (i, m) in metas.iter().enumerate() {
+        if results.len() >= max_results {
+            break;
+        }
+
+        let hit = m.subject.to_lowercase().contains(&q)
+            || m.author.to_lowercase().contains(&q)
+            || oid_to_hex(&m.oid).starts_with(&q);
+
+        if hit {
+            results.push(FindMatch {
+                oid: m.oid,
+                row_index: i as u32,
+                subject: m.subject.clone(),
+                author: m.author.clone(),
+                commit_time: m.commit_time,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
 /// Classify a full ref name (e.g. `refs/heads/main`) into its [`RefKind`] and
 /// display name. Returns `None` for non-UTF-8 ref names (skipped).
 fn classify_ref(full_name: &BStr) -> Option<(RefKind, String)> {
@@ -245,6 +325,15 @@ fn classify_ref(full_name: &BStr) -> Option<(RefKind, String)> {
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
+
+/// Convert a fixed-20 `Oid` to a lowercase hex string.
+fn oid_to_hex(oid: &Oid) -> String {
+    oid.iter().fold(String::with_capacity(40), |mut s, b| {
+        use std::fmt::Write as _;
+        let _ = write!(s, "{b:02x}");
+        s
+    })
+}
 
 /// Convert a gix `ObjectId` (20-byte SHA-1 or 32-byte SHA-256) to our
 /// fixed-size `Oid = [u8; 20]`.

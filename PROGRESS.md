@@ -8,7 +8,7 @@
 
 **Goal:** Click a commit → see metadata, ref chips, changed files, and diffs.
 
-**Status:** 🔄 In progress (Slice 1 ✅, Slice 2 ✅, Slices 3–4 🔲)
+**Status:** 🔄 In progress (Slices 1–3 ✅, Slice 4 🔲)
 
 ### M3 Slice 1 — refs + metadata (BRAI v2) + selection + detail panel
 
@@ -34,6 +34,19 @@
 | `src/extension.ts` — register content provider | ✅ | Registered once on `activate()` |
 | `src/webviewBridge.ts` — `openDiff` message → `vscode.diff` | ✅ | |
 | `web/index.ts` — render changed-file list, click-to-diff | ✅ | A/M/D badges, delegated click listener |
+
+### M3 Slice 3 — find: full-history search + highlight + auto-load-to-match
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `crates/core/src/walk.rs` — `FindMatch` + `find_commits` | ✅ | Case-insensitive; subject / author / OID-prefix; max_results cap |
+| `crates/core/tests/find.rs` — 8 integration tests | ✅ | Row-index stability contract explicitly tested |
+| `bindings/napi/src/lib.rs` — `FindMatch` napi object + `find_commits` napi fn | ✅ | Same walk options as `get_graph_batch` (row-index alignment) |
+| `src/webviewBridge.ts` — `find()` public method + `findResults` host message | ✅ | Gitoxide-only; no subprocess |
+| `src/extension.ts` — `gitBraid.find` command registration | ✅ | Guards on bridge; `showInputBox` prompt |
+| `package.json` — `gitBraid.find` command + `Cmd/Ctrl+F` keybinding | ✅ | `when: activeWebviewPanelId == 'gitBraid'` |
+| `web/renderer/canvas.ts` — `setMatches`, `setCurrentMatch`, `clearFind`, `scrollToRow` | ✅ | Amber match bands; centred scroll |
+| `web/index.ts` — find bar overlay, navigation (◀ ▶ / Enter / Esc), auto-load-to-match | ✅ | `pendingReveal` loads intervening rows on demand |
 
 ---
 
@@ -86,7 +99,7 @@
 | **M0** | Rust core: log walk + topo sort → CLI print | 3–5 days | ✅ |
 | **M1** | Layout algorithm + napi binding → host gets layout | 1 week | ✅ |
 | **M2 ⚑** | Canvas virtualised renderer → **MVP demo** | 3–5 days | ✅ |
-| M3 | Commit detail / diff / refs / find | 2–3 weeks | 🔄 S1+S2 done |
+| M3 | Commit detail / diff / refs / find | 2–3 weeks | 🔄 S1–S3 done |
 | M4 | Write ops + context menu | 3–4 weeks | 🔲 |
 | M5 | First AI feature (release-notes generation) | 2 weeks | 🔲 |
 | M6 | Marketplace publish (preview) | — | 🔲 |
@@ -116,4 +129,4 @@ Git Graph + VS Code built-in, stop here.
 
 ---
 
-_Updated: 2026-06-22 · M3 Slice 1 + 2 complete — refs/metadata/detail panel + file-list/diff_
+_Updated: 2026-06-22 · M3 Slices 1–3 complete — refs/metadata/detail panel + file-list/diff + find_

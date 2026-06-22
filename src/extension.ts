@@ -60,7 +60,26 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  context.subscriptions.push(openGraph);
+  // `gitBraid.find` — search full history and highlight matches in the open graph.
+  // The keybinding (Cmd+F when the graph panel is focused) is declared in package.json.
+  const find = vscode.commands.registerCommand("gitBraid.find", async () => {
+    if (!bridge) {
+      void vscode.window.showInformationMessage(
+        "Git Braid: open the graph first (Git Braid: Open Graph).",
+      );
+      return;
+    }
+    const query = await vscode.window.showInputBox({
+      prompt: "Find commit — subject, author name, or OID prefix (case-insensitive)",
+      placeHolder: "e.g. fix crash, alice, or a1b2c3d",
+    });
+    if (query) {
+      bridge.reveal();
+      await bridge.find(query);
+    }
+  });
+
+  context.subscriptions.push(openGraph, find);
 }
 
 export function deactivate(): void {
