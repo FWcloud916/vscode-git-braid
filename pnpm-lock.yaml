@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@git-braid/native':
+        specifier: workspace:*
+        version: link:bindings/napi
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

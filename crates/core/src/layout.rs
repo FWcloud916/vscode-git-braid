@@ -235,10 +235,7 @@ pub fn layout(
                     waiting_for: p0,
                     color,
                 });
-                st.waiting_index
-                    .entry(p0)
-                    .or_default()
-                    .push(commit_lane);
+                st.waiting_index.entry(p0).or_default().push(commit_lane);
             }
 
             // — Extra parents (P₁..Pₖ) — each spawns a MergeOut diagonal ─────
@@ -265,10 +262,7 @@ pub fn layout(
                         waiting_for: pk,
                         color: new_color,
                     });
-                    st.waiting_index
-                        .entry(pk)
-                        .or_default()
-                        .push(new_lane);
+                    st.waiting_index.entry(pk).or_default().push(new_lane);
                     merge_out_segs.push(Segment {
                         from_lane: commit_lane,
                         to_lane: new_lane,

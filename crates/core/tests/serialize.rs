@@ -18,7 +18,12 @@ fn oid(first_byte: u8) -> [u8; 20] {
 }
 
 fn seg(from: u16, to: u16, color: u8, kind: SegKind) -> Segment {
-    Segment { from_lane: from, to_lane: to, color, kind }
+    Segment {
+        from_lane: from,
+        to_lane: to,
+        color,
+        kind,
+    }
 }
 
 /// Run `encode_batch` → `decode_batch` and assert equality.
@@ -158,12 +163,30 @@ fn encode_then_layout_round_trip() {
     use git_braid_core::layout::layout;
 
     let commits = vec![
-        CommitIn { oid: oid(6), parents: smallvec![oid(5), oid(3)] },
-        CommitIn { oid: oid(5), parents: smallvec![oid(4)] },
-        CommitIn { oid: oid(4), parents: smallvec![oid(2)] },
-        CommitIn { oid: oid(3), parents: smallvec![oid(2)] },
-        CommitIn { oid: oid(2), parents: smallvec![oid(1)] },
-        CommitIn { oid: oid(1), parents: smallvec![] },
+        CommitIn {
+            oid: oid(6),
+            parents: smallvec![oid(5), oid(3)],
+        },
+        CommitIn {
+            oid: oid(5),
+            parents: smallvec![oid(4)],
+        },
+        CommitIn {
+            oid: oid(4),
+            parents: smallvec![oid(2)],
+        },
+        CommitIn {
+            oid: oid(3),
+            parents: smallvec![oid(2)],
+        },
+        CommitIn {
+            oid: oid(2),
+            parents: smallvec![oid(1)],
+        },
+        CommitIn {
+            oid: oid(1),
+            parents: smallvec![],
+        },
     ];
 
     let (rows, _) = layout(&commits, None);

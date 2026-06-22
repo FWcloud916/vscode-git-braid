@@ -7,10 +7,11 @@ node_modules/
 dist/
 *.tsbuildinfo
 
-# Native addon binaries
+# Native addon binaries (platform-specific .node files — never commit)
 *.node
-bindings/napi/index.js
-bindings/napi/index.d.ts
+# index.js and index.d.ts are *not* excluded: napi-rs projects commit
+# these JS/TS interface files as stubs that `napi build` overwrites.
+# Only the binary .node files are generated artefacts to exclude.
 
 # VS Code Extension
 *.vsix

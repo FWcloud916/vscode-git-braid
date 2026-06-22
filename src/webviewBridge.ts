@@ -19,12 +19,10 @@
  * Webview → Host:
  *   `{ type: "requestBatch", offset: number, limit: number }`
  *   `{ type: "ready" }` — sent once the webview JS has initialised
- *
- * Phase: Phase 0 skeleton — creates the panel with a placeholder HTML page.
- *        Binary protocol implementation is Phase 0/1.
  */
 
 import * as vscode from "vscode";
+import { getGraphBatch } from "@git-braid/native";
 
 /** Messages the webview can send to the extension host. */
 type WebviewMessage =
@@ -42,6 +40,7 @@ export class WebviewBridge implements vscode.Disposable {
 
   constructor(
     context: vscode.ExtensionContext,
+    private readonly _repoPath: string,
     private readonly _onDispose: () => void,
   ) {
     this._panel = vscode.window.createWebviewPanel(
@@ -95,13 +94,44 @@ export class WebviewBridge implements vscode.Disposable {
   private _handleMessage(message: WebviewMessage): void {
     switch (message.type) {
       case "ready":
-        // TODO(M1): trigger initial batch load once walk + layout are implemented.
+        // Webview has initialised — send the first batch of commits.
+        void this._sendInitialBatch();
         break;
       case "requestBatch":
-        // TODO(M1): call native addon get_graph_batch(repoPath, offset, limit)
-        //           → encode → post binary buffer back.
-        void this._postMessage({ type: "error", message: "Not implemented yet (M1)" });
+        void this._sendBatch(message.offset, message.limit);
         break;
+    }
+  }
+
+  /** Send the initial batch on `ready`, using the configured commit load size. */
+  private async _sendInitialBatch(): Promise<void> {
+    const limit =
+      vscode.workspace
+        .getConfiguration("gitBraid")
+        .get<number>("initialCommitLoad") ?? 300;
+    await this._sendBatch(0, limit);
+  }
+
+  /**
+   * Call `getGraphBatch` on the native addon and post the binary buffer
+   * to the webview as `{ type: "batch", payload: ArrayBuffer }`.
+   *
+   * On error, posts `{ type: "error", message }` instead of throwing.
+   */
+  private async _sendBatch(offset: number, limit: number): Promise<void> {
+    try {
+      const result = getGraphBatch(this._repoPath, offset, limit);
+      // Node.js `Buffer` may share a pool-allocated `ArrayBuffer`. Slice to get
+      // an independent `ArrayBuffer` backed exactly by these bytes (required for
+      // VS Code's transferable postMessage serialisation).
+      const payload = result.buffer.slice(
+        result.byteOffset,
+        result.byteOffset + result.byteLength,
+      ) as ArrayBuffer;
+      await this._postMessage({ type: "batch", payload });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await this._postMessage({ type: "error", message });
     }
   }
 
@@ -133,7 +163,7 @@ export class WebviewBridge implements vscode.Disposable {
 </head>
 <body>
   <div id="app">
-    <div id="loading">Git Braid — loading… (Phase 0 skeleton)</div>
+    <div id="loading">Git Braid — loading…</div>
   </div>
   <script nonce="${nonce}" src="${webviewJsUri}"></script>
 </body>

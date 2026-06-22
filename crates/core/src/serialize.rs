@@ -90,7 +90,7 @@ pub fn encode_batch(rows: &[RowLayout], string_pool: &[&str]) -> Vec<u8> {
         buf.push(row.flags.bits()); //  1
         buf.extend_from_slice(&seg_offset.to_le_bytes()); //  4
         buf.extend_from_slice(&seg_count.to_le_bytes()); //  4
-        // = 32 bytes per row
+                                                         // = 32 bytes per row
         seg_offset += seg_count;
     }
 
@@ -102,7 +102,7 @@ pub fn encode_batch(rows: &[RowLayout], string_pool: &[&str]) -> Vec<u8> {
             buf.push(seg.color); // 1
             buf.push(seg.kind as u8); // 1
             buf.extend_from_slice(&[0u8; 2]); // 2 pad
-            // = 8 bytes per segment
+                                              // = 8 bytes per segment
         }
     }
 
@@ -140,8 +140,7 @@ pub fn decode_batch(buf: &[u8]) -> Result<Vec<RowLayout>, DecodeError> {
         if pos + 4 > buf.len() {
             return Err(DecodeError::TooShort);
         }
-        let len =
-            u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]) as usize;
+        let len = u32::from_le_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]) as usize;
         pos = pos.checked_add(4 + len).ok_or(DecodeError::TooShort)?;
         if pos > buf.len() {
             return Err(DecodeError::TooShort);
@@ -176,7 +175,14 @@ pub fn decode_batch(buf: &[u8]) -> Result<Vec<RowLayout>, DecodeError> {
         let flags = RowFlags::from_bits_truncate(buf[b + 23]);
         let seg_offset = u32::from_le_bytes([buf[b + 24], buf[b + 25], buf[b + 26], buf[b + 27]]);
         let seg_count = u32::from_le_bytes([buf[b + 28], buf[b + 29], buf[b + 30], buf[b + 31]]);
-        metas.push(RowMeta { oid, lane, color, flags, seg_offset, seg_count });
+        metas.push(RowMeta {
+            oid,
+            lane,
+            color,
+            flags,
+            seg_offset,
+            seg_count,
+        });
     }
 
     // ── SegmentRow table ─────────────────────────────────────────────────
@@ -208,7 +214,12 @@ pub fn decode_batch(buf: &[u8]) -> Result<Vec<RowLayout>, DecodeError> {
                 v => return Err(DecodeError::Malformed(format!("unknown SegKind {v}"))),
             };
             // buf[b+6..b+8] = _pad, ignored
-            segments.push(Segment { from_lane, to_lane, color, kind });
+            segments.push(Segment {
+                from_lane,
+                to_lane,
+                color,
+                kind,
+            });
         }
         rows.push(RowLayout {
             oid: m.oid,

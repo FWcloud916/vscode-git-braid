@@ -35,7 +35,8 @@ const extensionBundle = {
   format: "cjs",
   target: "node20",
   // `vscode` is injected by the extension host; never bundle it.
-  external: ["vscode"],
+  // `@git-braid/native` is a platform-native `.node` addon; require'd at runtime.
+  external: ["vscode", "@git-braid/native"],
 };
 
 /** Webview bundle — runs in VS Code's sandboxed browser context */
