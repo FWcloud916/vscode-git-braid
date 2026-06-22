@@ -6,11 +6,8 @@
 //! Performance targets (plan §6.1):
 //! - First paint < 500ms for 10k commits
 //! - Batch latency < 100ms
-//!
-//! These benches are disabled (skipped / panicking) until layout is implemented.
-//! The scaffolding ensures CI picks them up automatically once M1 lands.
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use git_braid_core::model::CommitIn;
 use smallvec::smallvec;
 
@@ -41,9 +38,9 @@ fn bench_layout_linear(c: &mut Criterion) {
         let commits = linear_chain(size);
         group.bench_with_input(BenchmarkId::from_parameter(size), &commits, |b, commits| {
             b.iter(|| {
-                // Will panic until layout is implemented.
-                // Replace with a proper call once M1 lands.
-                let _ = std::panic::catch_unwind(|| git_braid_core::layout::layout(commits, None));
+                let (rows, boundary) =
+                    git_braid_core::layout::layout(black_box(commits), black_box(None));
+                black_box((rows, boundary));
             });
         });
     }
