@@ -1,0 +1,29 @@
+# Rust
+/target/
+Cargo.lock       # library; lock file intentionally excluded (extension bundle controls versions)
+
+# Node / pnpm
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Native addon binaries
+*.node
+bindings/napi/index.js
+bindings/napi/index.d.ts
+
+# VS Code Extension
+*.vsix
+.vscode-test/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Editor
+.idea/
+*.swp
+*.swo
+
+# Benchmarks
+/criterion/

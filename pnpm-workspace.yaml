@@ -1,0 +1,5 @@
+packages:
+  - "bindings/*"
+
+allowBuilds:
+  esbuild: true

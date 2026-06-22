@@ -1,0 +1,21 @@
+[package]
+name        = "git-braid-napi"
+description = "Git Braid — napi-rs native addon binding for the VS Code extension host"
+version.workspace     = true
+edition.workspace     = true
+rust-version.workspace = true
+authors.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+
+# Must be cdylib for Node.js to load it as a native addon.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+git-braid-core = { path = "../../crates/core" }
+napi        = { workspace = true }
+napi-derive = { workspace = true }
+
+[build-dependencies]
+napi-build = "2"

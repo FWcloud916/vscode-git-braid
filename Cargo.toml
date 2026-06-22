@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "bindings/napi",
+]
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+rust-version = "1.80"
+authors      = ["Git Braid contributors"]
+license      = "MIT"
+repository   = "https://github.com/TBD/vscode-git-braid"
+
+[workspace.dependencies]
+# Core git reading — pure Rust, high-perf log walk (plan §3.3)
+gix          = { version = "0.70", default-features = false, features = ["max-performance-safe"] }
+
+# Data structures
+smallvec = { version = "1", features = ["union", "const_generics"] }
+bitflags = "2"
+
+# Serialization (binary protocol, plan §3.5)
+bytemuck = { version = "1", features = ["derive"] }
+
+# napi-rs (plan §3.4 — native addon, host-side)
+napi        = { version = "2", default-features = false, features = ["napi4"] }
+napi-derive = "2"
+
+# Testing / benchmarks
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest  = "1"

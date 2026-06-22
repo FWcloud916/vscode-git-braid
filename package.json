@@ -1,0 +1,76 @@
+{
+  "name": "git-braid",
+  "displayName": "Git Braid",
+  "description": "High-performance, AI-assisted git graph visualisation for VS Code",
+  "version": "0.1.0",
+  "publisher": "TBD",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TBD/vscode-git-braid"
+  },
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": ["SCM Providers"],
+  "keywords": ["git", "graph", "visualisation", "history", "ai"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitBraid.openGraph",
+        "title": "Git Braid: Open Graph",
+        "icon": "$(git-branch)"
+      }
+    ],
+    "configuration": {
+      "title": "Git Braid",
+      "properties": {
+        "gitBraid.initialCommitLoad": {
+          "type": "number",
+          "default": 300,
+          "minimum": 50,
+          "maximum": 5000,
+          "description": "Number of commits to load on initial graph open."
+        },
+        "gitBraid.ai.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable AI-assisted features (opt-in). When enabled, commit data may be sent to an LLM provider — see the privacy notice."
+        }
+      }
+    },
+    "menus": {
+      "scm/title": [
+        {
+          "command": "gitBraid.openGraph",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "build:watch": "node esbuild.mjs --watch",
+    "build:napi": "pnpm --filter @git-braid/native build",
+    "build:napi:debug": "pnpm --filter @git-braid/native build:debug",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.web.json --noEmit",
+    "lint": "eslint src web",
+    "lint:fix": "eslint src web --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench": "cargo bench --package git-braid-core",
+    "vscode:prepublish": "pnpm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.93.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "esbuild": "^0.24.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  }
+}

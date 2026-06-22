@@ -1,0 +1,35 @@
+# Files excluded from the packaged .vsix
+
+# Source and dev artifacts
+src/
+web/
+crates/
+bindings/
+tests/
+benches/
+docs/
+.github/
+
+# Config files
+tsconfig*.json
+esbuild.mjs
+eslint.config.mjs
+.prettierrc.json
+.editorconfig
+rustfmt.toml
+clippy.toml
+Cargo.toml
+Cargo.lock
+pnpm-workspace.yaml
+
+# Dev dependencies and build output
+node_modules/
+target/
+*.tsbuildinfo
+
+# Misc
+.DS_Store
+**/.DS_Store
+CONTRIBUTING.md
+CHANGELOG.md
+PROGRESS.md

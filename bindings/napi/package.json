@@ -1,0 +1,29 @@
+{
+  "name": "@git-braid/native",
+  "version": "0.1.0",
+  "description": "Git Braid native napi-rs addon",
+  "main": "index.js",
+  "license": "MIT",
+  "napi": {
+    "binaryName": "git-braid-native",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc"
+    ]
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.0.0"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ]
+}
