@@ -191,9 +191,11 @@ fn collect_diff_files(
     Ok(())
 }
 
-/// Fetch full detail for a single commit by OID hex string.
+/// Fetch full commit detail for a single commit by OID hex string.
 ///
-/// `oid_hex` is the full 40-character hex SHA-1.
+/// * `repo_path` — absolute path to the git worktree or `.git` directory.
+/// * `oid_hex`   — full 40-character hex OID.
+///
 /// Returns author/committer name, email, timestamps, full message, and the
 /// list of files changed vs the first parent (tree-diff; rename detection off).
 #[napi]
@@ -278,11 +280,11 @@ pub fn get_commit_detail(repo_path: String, oid_hex: String) -> napi::Result<Com
 
 /// Read the raw bytes of a git blob by OID hex string.
 ///
-/// Returns the blob's raw bytes as a `Buffer`.
-/// If `oid_hex` is an empty string, returns an empty `Buffer` — this is the
-/// convention for the "missing side" of an addition or deletion in the diff
-/// view (so the `gitbraid:` content provider can serve an empty document).
+/// * `repo_path` — absolute path to the git worktree or `.git` directory.
+/// * `oid_hex`   — full 40-character hex OID, or `""` for the missing side of
+///                 an add/delete (returns an empty `Buffer` in that case).
 ///
+/// Returns the blob's raw bytes as a `Buffer`.
 /// The read path is gitoxide-only — no `git` subprocess is spawned.
 #[napi]
 pub fn get_blob(repo_path: String, oid_hex: String) -> napi::Result<Buffer> {
@@ -303,7 +305,7 @@ pub fn get_blob(repo_path: String, oid_hex: String) -> napi::Result<Buffer> {
     Ok(Buffer::from(obj.detach().data))
 }
 
-/// A single search hit from [`find_commits`].
+/// A single search hit from `findCommits`.
 ///
 /// napi-rs maps snake_case → camelCase in TypeScript (`row_index` → `rowIndex`,
 /// `commit_time` → `commitTime`).
@@ -324,11 +326,11 @@ pub struct FindMatch {
 /// Search the full commit history for commits whose subject, author name, or OID
 /// hex prefix matches `query` (case-insensitive substring / prefix).
 ///
-/// `max_results` caps the number of hits returned (pass 0 for a built-in cap of
+/// `maxResults` caps the number of hits returned (pass 0 for a built-in cap of
 /// 1 000). Returns matches in ascending row-index order.
 ///
-/// **Row-index contract:** the returned `row_index` values align with the rows
-/// produced by `get_graph_batch` **only** when both use the same walk order
+/// **Row-index contract:** the returned `rowIndex` values align with the rows
+/// produced by `getGraphBatch` **only** when both use the same walk order
 /// (`SortOrder::Date`, no limit). Changing the paging walk options breaks alignment.
 ///
 /// The read path is gitoxide-only — no `git` subprocess is spawned.
@@ -376,10 +378,8 @@ pub fn find_commits(
 
 /// A single ref (branch or tag) for the release-notes range picker.
 ///
-/// `kind` is [`git_braid_core::model::RefKind`] as its `u8` discriminant:
-/// `0` = LocalBranch, `2` = Tag.
-///
-/// napi-rs maps snake_case → camelCase: `kind` stays `kind`, `oid` stays `oid`.
+/// `kind` is the `RefKind` discriminant: `0` = LocalBranch, `2` = Tag.
+/// napi-rs maps snake_case → camelCase (no field renaming needed here).
 #[napi(object)]
 pub struct RefInfo {
     /// Display name (e.g. `"main"`, `"v1.0.0"`).
@@ -390,11 +390,11 @@ pub struct RefInfo {
     pub oid: String,
 }
 
-/// List all local branches and tags in `repo_path`, sorted branches-first
-/// then alphabetically.
+/// List all local branches and tags in `repo_path`, sorted branches-first then
+/// alphabetically within each group.
 ///
-/// Stash, remote branches, and HEAD are excluded — the picker shows only refs
-/// a user would naturally specify as range boundaries.
+/// Stash, remote branches, and HEAD are excluded — only refs a user would
+/// name as `from`/`to` range boundaries are returned.
 ///
 /// The read path is gitoxide-only — no `git` subprocess is spawned.
 #[napi]

@@ -24,7 +24,7 @@ opening an issue or pull request.
 
 ```bash
 # 1. Clone
-git clone https://github.com/TBD/vscode-git-braid
+git clone https://github.com/FWcloud916/vscode-git-braid
 cd vscode-git-braid
 
 # 2. Install JS dependencies
@@ -43,7 +43,15 @@ cargo clippy --workspace --all-targets -- -D warnings -A clippy::todo
 
 # 6. Build native addon (for napi work)
 pnpm run build:napi:debug
+
+# 7. Regenerate bindings/napi/index.d.ts (only needed after changing #[napi] exports)
+pnpm run gen-dts:napi
 ```
+
+> **`index.d.ts` is committed.** Normal `build:napi` / `build:napi:debug` runs
+> redirect napi's generated d.ts to `_napi.d.ts.tmp` so they never overwrite the
+> committed file. Only run `gen-dts:napi` intentionally, after updating Rust
+> `#[napi]` exports or their `///` doc comments.
 
 **VS Code development host:** Press **F5** in VS Code. Then open the command
 palette and run **Git Braid: Open Graph**.

@@ -141,6 +141,7 @@
     "build:watch": "node esbuild.mjs --watch",
     "build:napi": "pnpm --filter @git-braid/native build",
     "build:napi:debug": "pnpm --filter @git-braid/native build:debug",
+    "gen-dts:napi": "pnpm --filter @git-braid/native gen-dts",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.web.json --noEmit",
     "lint": "eslint src web",
     "lint:fix": "eslint src web --fix",
