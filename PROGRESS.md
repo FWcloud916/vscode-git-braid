@@ -8,7 +8,7 @@
 
 **Goal:** Right-click a commit → checkout / create+delete branch/tag / merge / rebase / cherry-pick / revert / reset / stash ops. All writes via `git` CLI with friendly stderr.
 
-**Status:** 🔲 In progress — Slices 1–2 done
+**Status:** 🔲 In progress — Slices 1–3 done
 
 ### M4 Slice 1 — Context-menu infrastructure + checkout
 
@@ -27,6 +27,14 @@
 | `src/gitActions.ts` — `createBranch`, `deleteBranch` (force param), `createTag`, `deleteTag` | ✅ | `deleteBranch` uses `-d` by default; `force=true` upgrades to `-D` |
 | `src/webviewBridge.ts` — `validateRefName` helper, 4 new `_handleAction` cases | ✅ | `deleteBranch` tries -d, offers -D modal if "not fully merged"; create ops use `showInputBox` |
 | `web/index.ts` — `buildMenuItems` full Slice 2 menu (checkout + create + conditional delete) | ✅ | Per-branch checkout/delete; create always shown; delete section conditional on refs |
+
+### M4 Slice 3 — merge / cherry-pick / revert + conflict surfacing
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `src/gitActions.ts` — `merge`, `cherryPick`, `revert` (`--no-edit`) | ✅ | Conflict exits non-zero; caught and classified by `_presentGitError` |
+| `src/webviewBridge.ts` — 3 new `_handleAction` cases | ✅ | No pre-confirmation; conflict regex in `_presentGitError` fires correctly |
+| `web/index.ts` — Merge / Cherry-pick / Revert menu items | ✅ | Added to integrative-ops section |
 
 ---
 

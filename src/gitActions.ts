@@ -77,20 +77,21 @@ export async function deleteBranch(name: string, cwd: string, force = false): Pr
   await runGit(["branch", force ? "-D" : "-d", name], cwd);
 }
 
-export async function merge(_ref: string, _cwd: string): Promise<void> {
-  throw new NotImplementedError("merge");
+export async function merge(ref: string, cwd: string): Promise<void> {
+  await runGit(["merge", ref], cwd);
 }
 
-export async function rebase(_onto: string, _cwd: string): Promise<void> {
-  throw new NotImplementedError("rebase");
+export async function rebase(onto: string, cwd: string): Promise<void> {
+  await runGit(["rebase", onto], cwd);
 }
 
-export async function cherryPick(_oid: string, _cwd: string): Promise<void> {
-  throw new NotImplementedError("cherryPick");
+export async function cherryPick(oid: string, cwd: string): Promise<void> {
+  await runGit(["cherry-pick", oid], cwd);
 }
 
-export async function revert(_oid: string, _cwd: string): Promise<void> {
-  throw new NotImplementedError("revert");
+export async function revert(oid: string, cwd: string): Promise<void> {
+  // --no-edit: commit the revert immediately without opening the editor.
+  await runGit(["revert", "--no-edit", oid], cwd);
 }
 
 export async function createTag(name: string, oid: string, cwd: string): Promise<void> {

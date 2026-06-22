@@ -32,7 +32,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { getGraphBatch, getCommitDetail, findCommits, type CommitDetail, type FindMatch } from "@git-braid/native";
 import { buildDiffUri } from "./diffProvider";
-import { checkout, createBranch, deleteBranch, createTag, deleteTag, isConflictError } from "./gitActions";
+import { checkout, createBranch, deleteBranch, createTag, deleteTag, merge, cherryPick, revert, isConflictError } from "./gitActions";
 
 /**
  * Validate a proposed git ref name without spawning a process.
@@ -375,6 +375,18 @@ export class WebviewBridge implements vscode.Disposable {
           await deleteTag(tName, this._repoPath);
           break;
         }
+
+        case "merge":
+          await merge(msg.oid, this._repoPath);
+          break;
+
+        case "cherryPick":
+          await cherryPick(msg.oid, this._repoPath);
+          break;
+
+        case "revert":
+          await revert(msg.oid, this._repoPath);
+          break;
 
         default:
           // Not yet implemented in this slice — silently ignore.

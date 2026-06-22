@@ -196,6 +196,30 @@ function buildMenuItems(info: { oidHex: string; refs: DecodedRef[] }): MenuItem[
     }),
   });
 
+  // ── Integrative ops ────────────────────────────────────────────────────
+  items.push({ separator: true });
+  items.push({
+    label: "Merge into current branch",
+    action: () => postToHost({
+      type: "action", op: "merge" as GitActionOp,
+      oid: info.oidHex, refs: [],
+    }),
+  });
+  items.push({
+    label: "Cherry-pick onto current branch",
+    action: () => postToHost({
+      type: "action", op: "cherryPick" as GitActionOp,
+      oid: info.oidHex, refs: [],
+    }),
+  });
+  items.push({
+    label: "Revert this commit",
+    action: () => postToHost({
+      type: "action", op: "revert" as GitActionOp,
+      oid: info.oidHex, refs: [],
+    }),
+  });
+
   // ── Delete branch / tag (conditional on refs at this commit) ───────────
   if (localBranches.length > 0 || tags.length > 0) {
     items.push({ separator: true });
