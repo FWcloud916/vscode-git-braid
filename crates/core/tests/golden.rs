@@ -290,3 +290,72 @@ fn invariant_boundary_continuation() {
         "boundary continuation produced different rows than one-shot layout"
     );
 }
+
+/// Regression test: multiple merge commits all sharing the same second parent
+/// must each produce a Straight segment on the shared-parent lane in their
+/// gap-below. Previously the lane was incorrectly skipped because its index
+/// appeared in `new_merge_targets` even though it was an existing lane.
+///
+/// DAG (newest first, date-order):
+///
+/// ```text
+/// A → {A_prev, M}   (merge: branch-A merged M)
+/// B → {B_prev, M}   (merge: branch-B merged M)
+/// C → {C_prev, M}   (merge: branch-C merged M)
+/// M → {M_prev}      (the shared master commit)
+/// ```
+///
+/// A_prev, B_prev, C_prev, M_prev are offscreen (not in this window).
+///
+/// Expected: in every gap above M, lane 0 (M's lane) must carry a Straight
+/// segment so the visual line from A/B/C back to M is unbroken.
+#[test]
+fn shared_second_parent_lane_gets_straight() {
+    // OIDs
+    let m: [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x0a; o };
+    let a: [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x0b; o };
+    let b: [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x0c; o };
+    let c: [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x0d; o };
+    // Offscreen parents — referenced but not in this window.
+    let m_prev:  [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x10; o };
+    let a_prev:  [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x11; o };
+    let b_prev:  [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x12; o };
+    let c_prev:  [u8; 20] = { let mut o = [0u8; 20]; o[0] = 0x13; o };
+
+    let commits = vec![
+        CommitIn { oid: a, parents: smallvec![a_prev, m] },
+        CommitIn { oid: b, parents: smallvec![b_prev, m] },
+        CommitIn { oid: c, parents: smallvec![c_prev, m] },
+        CommitIn { oid: m, parents: smallvec![m_prev] },
+    ];
+
+    let (rows, _) = git_braid_core::layout::layout(&commits, None);
+
+    // M must sit in lane 0 (it is the first tip, or the shared-parent lane).
+    // Actually: A is processed first as a tip → lane 0 for A's first-parent chain.
+    // M's lane is opened for the second-parent connection. Let's just assert the
+    // key property: every row that precedes M must have a Straight segment whose
+    // from_lane == to_lane for M's lane (the lane that converges on M).
+
+    // Find which lane M lives in.
+    let m_row = rows.iter().find(|r| r.oid == m).expect("M must be in rows");
+    let m_lane = m_row.lane;
+
+    // Row 0 (A) *opens* M's lane via a MergeOut — no Straight on m_lane expected
+    // there (the lane is born in that gap).
+    // Rows 1 and 2 (B, C) come after the lane exists; they point their second
+    // parent at the EXISTING lane, so M's lane must receive a Straight in each.
+    let straight_on_m_lane = |row: &RowLayout| {
+        row.segments.iter().any(|s| {
+            s.kind == SegKind::Straight && s.from_lane == m_lane && s.to_lane == m_lane
+        })
+    };
+    assert!(
+        straight_on_m_lane(&rows[1]),
+        "row 1 (B) is missing Straight on lane {m_lane} (M's lane)"
+    );
+    assert!(
+        straight_on_m_lane(&rows[2]),
+        "row 2 (C) is missing Straight on lane {m_lane} (M's lane)"
+    );
+}

@@ -206,6 +206,10 @@ pub fn layout(
 
         // ── 5. Handle parents ────────────────────────────────────────────────
         let mut merge_out_segs: SmallVec<[Segment; 4]> = SmallVec::new();
+        // Tracks only lanes NEWLY opened in this step (the `else` branch below).
+        // Existing lanes that are merely the *target* of a MergeOut diagonal are
+        // NOT new — they must still receive a Straight segment to remain visible.
+        let mut new_lane_ids: SmallVec<[u16; 2]> = SmallVec::new();
 
         if c.parents.is_empty() {
             // IS_ROOT: commit_lane terminates with no continuation.
@@ -248,6 +252,9 @@ pub fn layout(
                     .and_then(|ws| ws.iter().copied().min());
 
                 if let Some(ex_lane) = existing {
+                    // Point the MergeOut at the existing lane — do NOT add it to
+                    // `new_lane_ids`; that lane was not born here and must still
+                    // receive a Straight segment in the gap below.
                     let ex_color = st.lanes[ex_lane as usize].as_ref().unwrap().color;
                     merge_out_segs.push(Segment {
                         from_lane: commit_lane,
@@ -269,21 +276,21 @@ pub fn layout(
                         color: new_color,
                         kind: SegKind::MergeOut,
                     });
+                    // Track this truly-new lane so it is excluded from Straights below.
+                    new_lane_ids.push(new_lane);
                 }
             }
         }
 
         // ── 6. Straight segments for all other continuing lanes ──────────────
-        // Every active lane that was NOT just created as a new merge target gets
-        // a Straight — it passes through this gap unchanged.
-        let new_merge_targets: SmallVec<[u16; 2]> =
-            merge_out_segs.iter().map(|s| s.to_lane).collect();
-
+        // Every active lane that was NOT just born in this gap gets a Straight.
+        // We exclude only `new_lane_ids` (truly new lanes opened above) — NOT the
+        // targets of MergeOut diagonals that point at pre-existing lanes.
         let mut straight_segs: SmallVec<[Segment; 4]> = SmallVec::new();
         for (j, slot) in st.lanes.iter().enumerate() {
             let j = j as u16;
             let Some(entry) = slot else { continue };
-            if new_merge_targets.contains(&j) {
+            if new_lane_ids.contains(&j) {
                 // This lane was born in this gap; it is already described by its
                 // MergeOut and must not also get a Straight.
                 continue;
