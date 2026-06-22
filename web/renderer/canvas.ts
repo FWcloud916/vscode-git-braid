@@ -39,6 +39,7 @@ import {
   shortOid,
   SEG_KIND_STRAIGHT,
   FLAG_IS_MERGE,
+  REF_KIND_HEAD,
 } from "./decode";
 
 // Polyfill roundRect for environments that don't have it (e.g. older jsdom in
@@ -89,11 +90,21 @@ export const ROW_HEIGHT = 24;
 /** Horizontal lane width in pixels. */
 export const LANE_WIDTH = 14;
 
-/** Left padding before lane 0, in CSS pixels. */
-const PAD_X = 12;
+/** Left padding before lane 0, in CSS pixels. Also used by the header bar. */
+export const PAD_X = 12;
 
 /** Commit node circle radius, in CSS pixels. */
 const NODE_RADIUS = 4;
+
+// ── Right-anchored column widths (CSS pixels) ─────────────────────────────────
+// These are exported so the DOM header bar (web/index.ts) can mirror the layout.
+
+/** Width of the Date column, measured from the right anchor. */
+export const COL_DATE_WIDTH = 150;
+/** Width of the Author column. */
+export const COL_AUTHOR_WIDTH = 120;
+/** Width of the Commit (short hash) column. */
+export const COL_COMMIT_WIDTH = 80;
 
 /** Rows outside the viewport that are still painted (on each side). */
 const OVERSCAN = 8;
@@ -111,6 +122,43 @@ function refChipColor(kind: number): string {
     case 4:  return "#E66A9F"; // Stash — pink
     default: return "#6A9FE6";
   }
+}
+
+/**
+ * Format an epoch-seconds timestamp as a compact date string for the list column.
+ * Produces "DD Mon YYYY HH:MM" in local time, e.g. "15 Jun 2026 16:44".
+ */
+function formatListDate(epochSeconds: number): string {
+  const d = new Date(epochSeconds * 1000);
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"] as const;
+  const dd   = String(d.getDate()).padStart(2, "0");
+  const mon  = months[d.getMonth()];
+  const yyyy = d.getFullYear();
+  const hh   = String(d.getHours()).padStart(2, "0");
+  const mm   = String(d.getMinutes()).padStart(2, "0");
+  return `${dd} ${mon} ${yyyy} ${hh}:${mm}`;
+}
+
+/**
+ * Truncate `text` with an ellipsis so it fits within `maxWidth` CSS pixels using
+ * the canvas context's current font. Returns the original string if it already fits.
+ */
+function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (maxWidth <= 0) return "";
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ellipsis = "…";
+  const ellipsisW = ctx.measureText(ellipsis).width;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (ctx.measureText(text.slice(0, mid)).width + ellipsisW <= maxWidth) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return lo === 0 ? ellipsis : text.slice(0, lo) + ellipsis;
 }
 
 /** Return the full 40-char hex of a 20-byte OID. */
@@ -305,6 +353,15 @@ export class CanvasRenderer {
   }
 
   /**
+   * Clear the current selection highlight (e.g. when the detail panel closes).
+   * Triggers a repaint.
+   */
+  clearSelection(): void {
+    this._selectedRow = -1;
+    this._paint();
+  }
+
+  /**
    * Override the lane colour cycle.
    *
    * `colors` is an ordered array of CSS colour strings. Empty array resets to
@@ -478,10 +535,26 @@ export class CanvasRenderer {
         this._ctx.stroke();
       }
 
-      // Text column: ref chips, then subject, then dimmed short OID.
+      // HEAD indicator: outer yellow ring (outermost — sits just beyond the merge ring).
+      if ((row.refs ?? []).some(r => r.kind === REF_KIND_HEAD)) {
+        this._ctx.beginPath();
+        this._ctx.arc(x, y, NODE_RADIUS + 3, 0, Math.PI * 2);
+        this._ctx.strokeStyle = "#E6D46A"; // HEAD yellow — matches refChipColor(3)
+        this._ctx.lineWidth = 1.5;
+        this._ctx.stroke();
+      }
+
+      // ── Right-anchored column x-positions (recomputed per row using cw).
+      // cw is captured at the top of _paint() and is stable across the loop.
+      const colCommitX = cw - PAD_X - COL_COMMIT_WIDTH;
+      const colAuthorX = colCommitX - COL_AUTHOR_WIDTH;
+      const colDateX   = colAuthorX - COL_DATE_WIDTH;
+      const descRight  = colDateX - 8; // Description clips before the Date column.
+
+      // ── Description column: ref chips, then subject (clipped to descRight).
       let tx = textX;
 
-      // Ref chips (sorted: HEAD first, then local branches, tags, remotes).
+      // Ref chips (sorted by kind: LocalBranch 0, RemoteBranch 1, Tag 2, HEAD 3, Stash 4).
       const sortedRefs = [...(row.refs ?? [])].sort((a, b) => a.kind - b.kind);
       for (const ref of sortedRefs) {
         const label = ref.name;
@@ -491,6 +564,9 @@ export class CanvasRenderer {
         const chipW = tw + 8;
         const chipH = 14;
         const chipY = y - chipH / 2;
+
+        // Stop drawing chips if they would overflow into the Date column.
+        if (tx + chipW > descRight) break;
 
         this._ctx.beginPath();
         this._ctx.roundRect(tx, chipY, chipW, chipH, 3);
@@ -505,18 +581,29 @@ export class CanvasRenderer {
         tx += chipW + 4;
       }
 
-      // Subject text (after chips).
-      if (row.subject) {
+      // Subject text (after chips, clipped to descRight).
+      if (row.subject && tx < descRight) {
         this._ctx.font = "11px monospace";
         this._ctx.fillStyle = "rgba(200,200,200,0.9)";
-        this._ctx.fillText(row.subject, tx, y + 4);
-        tx += this._ctx.measureText(row.subject).width + 8;
+        const subject = fitText(this._ctx, row.subject, descRight - tx);
+        this._ctx.fillText(subject, tx, y + 4);
       }
 
-      // Short OID (dimmed, after subject).
+      // ── Date column (right-anchored).
+      this._ctx.font = "11px monospace";
+      this._ctx.fillStyle = "rgba(130,130,130,0.75)";
+      this._ctx.fillText(formatListDate(row.commitTime), colDateX, y + 4);
+
+      // ── Author column (right-anchored, clipped to column width).
+      this._ctx.font = "11px monospace";
+      this._ctx.fillStyle = "rgba(180,180,180,0.8)";
+      const authorText = fitText(this._ctx, row.author ?? "", COL_AUTHOR_WIDTH - 8);
+      this._ctx.fillText(authorText, colAuthorX, y + 4);
+
+      // ── Commit (short hash) column (right-anchored, dimmed).
       this._ctx.font = "11px monospace";
       this._ctx.fillStyle = "rgba(130,130,130,0.6)";
-      this._ctx.fillText(shortOid(row.oid), tx, y + 4);
+      this._ctx.fillText(shortOid(row.oid), colCommitX, y + 4);
     }
 
     // ── 3. Prefetch trigger ───────────────────────────────────────────────

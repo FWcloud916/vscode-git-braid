@@ -26,7 +26,7 @@
  *   `{ type: "copy", field: "hash"|"shortHash"|"subject"|"message", oid: string }` — clipboard copy
  */
 
-import { CanvasRenderer } from "./renderer/canvas";
+import { CanvasRenderer, PAD_X, COL_DATE_WIDTH, COL_AUTHOR_WIDTH, COL_COMMIT_WIDTH } from "./renderer/canvas";
 import { decodeBatch, REF_KIND_LOCAL_BRANCH, REF_KIND_TAG, REF_KIND_STASH, type DecodedRef } from "./renderer/decode";
 import { formatRelative } from "./format";
 import { showContextMenu, type MenuItem } from "./ui/contextMenu";
@@ -372,7 +372,7 @@ function fileRowHtml(f: FileChangePayload): string {
   </div>`;
 }
 
-function showDetail(pane: HTMLElement, d: CommitDetailPayload): void {
+function showDetail(pane: HTMLElement, d: CommitDetailPayload, onClose?: () => void): void {
   pane.style.display = "block";
 
   const filesSection =
@@ -382,8 +382,17 @@ function showDetail(pane: HTMLElement, d: CommitDetailPayload): void {
 
   pane.innerHTML = `
     <div style="margin-bottom:12px;">
-      <div style="font-size:13px;font-weight:bold;margin-bottom:6px;word-break:break-all;">
-        ${escHtml(firstLine(d.message))}
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px;">
+        <div style="font-size:13px;font-weight:bold;word-break:break-all;flex:1;">
+          ${escHtml(firstLine(d.message))}
+        </div>
+        <button id="gb-detail-close"
+          title="Close (Escape)"
+          style="background:none;border:none;cursor:pointer;padding:0 2px;
+                 color:var(--vscode-foreground,#ccc);font-size:14px;line-height:1;
+                 flex-shrink:0;opacity:0.6;"
+          onmouseover="this.style.opacity='1'"
+          onmouseout="this.style.opacity='0.6'">✕</button>
       </div>
       <div style="color:var(--vscode-descriptionForeground,#888);font-size:11px;">
         ${escHtml(d.oid.slice(0, 12))}
@@ -427,6 +436,11 @@ function showDetail(pane: HTMLElement, d: CommitDetailPayload): void {
       postToHost({ type: "openDiff", filePath, oldOid, newOid, status });
     });
   }
+
+  // Wire up the ✕ close button.
+  pane.querySelector<HTMLButtonElement>("#gb-detail-close")?.addEventListener("click", () => {
+    onClose?.();
+  });
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
@@ -441,18 +455,55 @@ function init(): void {
   app.style.cssText =
     "width:100%; height:100%; margin:0; padding:0; display:flex; flex-direction:row;";
 
-  // ── Graph area: wrapper (position:relative for the find bar overlay) + scroll container.
+  // ── Graph area: wrapper (vertical flex: header on top, scroll viewport below).
   const graphWrapper = document.createElement("div");
-  graphWrapper.style.cssText = "flex:1; min-width:0; height:100%; position:relative; overflow:hidden;";
+  graphWrapper.style.cssText = "flex:1; min-width:0; height:100%; position:relative; overflow:hidden; display:flex; flex-direction:column;";
   app.appendChild(graphWrapper);
 
-  // The CanvasRenderer's scroll viewport fills the wrapper.
+  // ── Column header bar ──────────────────────────────────────────────────────
+  // Heights and widths mirror the canvas column constants so the labels align
+  // pixel-for-pixel with the data drawn in CanvasRenderer._paint().
+  const headerBar = document.createElement("div");
+  headerBar.style.cssText = [
+    "width:100%; height:24px; flex-shrink:0;",
+    "display:flex; align-items:center;",
+    "background:var(--vscode-sideBarSectionHeader-background,rgba(255,255,255,0.04));",
+    "border-bottom:1px solid var(--vscode-panel-border,#333);",
+    "box-sizing:border-box;",
+    "font-family:var(--vscode-font-family,monospace); font-size:10px;",
+    "color:var(--vscode-foreground,rgba(204,204,204,0.7));",
+    "user-select:none;",
+    `padding-right:${PAD_X}px;`,
+  ].join(" ");
+  // Graph + Description: flex:1 (takes remaining space).
+  const hdrDesc = document.createElement("span");
+  hdrDesc.style.cssText = "flex:1; min-width:0; padding-left:12px; font-weight:600;";
+  hdrDesc.textContent = "Description";
+  // Date column.
+  const hdrDate = document.createElement("span");
+  hdrDate.style.cssText = `width:${COL_DATE_WIDTH}px; flex-shrink:0; font-weight:600;`;
+  hdrDate.textContent = "Date";
+  // Author column.
+  const hdrAuthor = document.createElement("span");
+  hdrAuthor.style.cssText = `width:${COL_AUTHOR_WIDTH}px; flex-shrink:0; font-weight:600;`;
+  hdrAuthor.textContent = "Author";
+  // Commit (short hash) column.
+  const hdrCommit = document.createElement("span");
+  hdrCommit.style.cssText = `width:${COL_COMMIT_WIDTH}px; flex-shrink:0; font-weight:600;`;
+  hdrCommit.textContent = "Commit";
+  headerBar.appendChild(hdrDesc);
+  headerBar.appendChild(hdrDate);
+  headerBar.appendChild(hdrAuthor);
+  headerBar.appendChild(hdrCommit);
+  graphWrapper.appendChild(headerBar);
+
+  // The CanvasRenderer's scroll viewport fills the remaining height.
   // NOTE: CanvasRenderer's constructor overwrites `position` to "relative", so we
   // cannot rely on absolute offsets for sizing. Use width/height:100% instead — the
   // wrapper's overflow:hidden ensures graphPane never escapes the viewport box, and
   // the renderer's overflow:auto handles scrolling internally.
   const graphPane = document.createElement("div");
-  graphPane.style.cssText = "width:100%; height:100%;";
+  graphPane.style.cssText = "width:100%; flex:1; min-height:0;";
   graphWrapper.appendChild(graphPane);
 
   // ── Find bar overlay (position:absolute inside graphWrapper — always visible
@@ -544,6 +595,12 @@ function init(): void {
     findBar.style.display = "none";
   }
 
+  /** Hide the detail panel and clear the canvas selection highlight. */
+  function closeDetail(): void {
+    detailPane.style.display = "none";
+    renderer.clearSelection();
+  }
+
   function revealMatch(): void {
     if (matches.length === 0 || currentMatchIdx < 0) return;
     const target = matches[currentMatchIdx]!.rowIndex;
@@ -584,12 +641,20 @@ function init(): void {
 
   // ── Keyboard navigation in the find bar (also works when graph is focused).
   window.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (findBar.style.display === "none") return;
-    if (e.key === "Escape") {
-      clearFind();
-      e.preventDefault();
-    } else if (e.key === "Enter" || e.key === "F3") {
-      gotoMatch(e.shiftKey ? -1 : 1);
+    // Find bar takes Escape priority when open.
+    if (findBar.style.display !== "none") {
+      if (e.key === "Escape") {
+        clearFind();
+        e.preventDefault();
+      } else if (e.key === "Enter" || e.key === "F3") {
+        gotoMatch(e.shiftKey ? -1 : 1);
+        e.preventDefault();
+      }
+      return;
+    }
+    // Escape closes the detail panel when it is open.
+    if (e.key === "Escape" && detailPane.style.display !== "none") {
+      closeDetail();
       e.preventDefault();
     }
   });
@@ -662,7 +727,7 @@ function init(): void {
       case "commitDetail": {
         const detail = message["detail"] as CommitDetailPayload | undefined;
         if (!detail) break;
-        showDetail(detailPane, detail);
+        showDetail(detailPane, detail, closeDetail);
         break;
       }
 
