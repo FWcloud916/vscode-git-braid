@@ -6,7 +6,7 @@
 //! To run once implemented:
 //!   cargo test --package git-braid-core -- --ignored
 
-use git_braid_core::model::{ColorId, CommitIn, RowFlags, RowLayout, Segment, SegKind};
+use git_braid_core::model::{ColorId, CommitIn, RowFlags, RowLayout, SegKind, Segment};
 use smallvec::smallvec;
 
 // ─── OID constants ───────────────────────────────────────────────────────────
@@ -69,12 +69,30 @@ const F: [u8; 20] = {
 #[ignore = "pending layout engine implementation (M1) — see docs/specs/layout-spec.md §9"]
 fn golden_spec_section_9() {
     let commits = vec![
-        CommitIn { oid: F, parents: smallvec![E, C] },
-        CommitIn { oid: E, parents: smallvec![D] },
-        CommitIn { oid: D, parents: smallvec![B] },
-        CommitIn { oid: C, parents: smallvec![B] },
-        CommitIn { oid: B, parents: smallvec![A] },
-        CommitIn { oid: A, parents: smallvec![] },
+        CommitIn {
+            oid: F,
+            parents: smallvec![E, C],
+        },
+        CommitIn {
+            oid: E,
+            parents: smallvec![D],
+        },
+        CommitIn {
+            oid: D,
+            parents: smallvec![B],
+        },
+        CommitIn {
+            oid: C,
+            parents: smallvec![B],
+        },
+        CommitIn {
+            oid: B,
+            parents: smallvec![A],
+        },
+        CommitIn {
+            oid: A,
+            parents: smallvec![],
+        },
     ];
 
     let c0: ColorId = 0;
@@ -86,8 +104,18 @@ fn golden_spec_section_9() {
             lane: 0,
             color: c0,
             segments: smallvec![
-                Segment { from_lane: 0, to_lane: 0, color: c0, kind: SegKind::Straight },
-                Segment { from_lane: 0, to_lane: 1, color: c1, kind: SegKind::MergeOut },
+                Segment {
+                    from_lane: 0,
+                    to_lane: 0,
+                    color: c0,
+                    kind: SegKind::Straight
+                },
+                Segment {
+                    from_lane: 0,
+                    to_lane: 1,
+                    color: c1,
+                    kind: SegKind::MergeOut
+                },
             ],
             flags: RowFlags::IS_MERGE,
         },
@@ -96,8 +124,18 @@ fn golden_spec_section_9() {
             lane: 0,
             color: c0,
             segments: smallvec![
-                Segment { from_lane: 0, to_lane: 0, color: c0, kind: SegKind::Straight },
-                Segment { from_lane: 1, to_lane: 1, color: c1, kind: SegKind::Straight },
+                Segment {
+                    from_lane: 0,
+                    to_lane: 0,
+                    color: c0,
+                    kind: SegKind::Straight
+                },
+                Segment {
+                    from_lane: 1,
+                    to_lane: 1,
+                    color: c1,
+                    kind: SegKind::Straight
+                },
             ],
             flags: RowFlags::empty(),
         },
@@ -106,8 +144,18 @@ fn golden_spec_section_9() {
             lane: 0,
             color: c0,
             segments: smallvec![
-                Segment { from_lane: 0, to_lane: 0, color: c0, kind: SegKind::Straight },
-                Segment { from_lane: 1, to_lane: 1, color: c1, kind: SegKind::Straight },
+                Segment {
+                    from_lane: 0,
+                    to_lane: 0,
+                    color: c0,
+                    kind: SegKind::Straight
+                },
+                Segment {
+                    from_lane: 1,
+                    to_lane: 1,
+                    color: c1,
+                    kind: SegKind::Straight
+                },
             ],
             flags: RowFlags::empty(),
         },
@@ -116,8 +164,18 @@ fn golden_spec_section_9() {
             lane: 1,
             color: c1,
             segments: smallvec![
-                Segment { from_lane: 0, to_lane: 0, color: c0, kind: SegKind::Straight },
-                Segment { from_lane: 1, to_lane: 0, color: c1, kind: SegKind::ConvergeIn },
+                Segment {
+                    from_lane: 0,
+                    to_lane: 0,
+                    color: c0,
+                    kind: SegKind::Straight
+                },
+                Segment {
+                    from_lane: 1,
+                    to_lane: 0,
+                    color: c1,
+                    kind: SegKind::ConvergeIn
+                },
             ],
             flags: RowFlags::empty(),
         },
@@ -125,9 +183,12 @@ fn golden_spec_section_9() {
             oid: B,
             lane: 0,
             color: c0,
-            segments: smallvec![
-                Segment { from_lane: 0, to_lane: 0, color: c0, kind: SegKind::Straight },
-            ],
+            segments: smallvec![Segment {
+                from_lane: 0,
+                to_lane: 0,
+                color: c0,
+                kind: SegKind::Straight
+            },],
             flags: RowFlags::empty(),
         },
         RowLayout {
@@ -140,7 +201,10 @@ fn golden_spec_section_9() {
     ];
 
     let (rows, _next_boundary) = git_braid_core::layout::layout(&commits, None);
-    assert_eq!(rows, expected, "layout output does not match spec §9 golden table");
+    assert_eq!(
+        rows, expected,
+        "layout output does not match spec §9 golden table"
+    );
 }
 
 /// Verify append-only stability (spec invariant 5):
@@ -149,17 +213,35 @@ fn golden_spec_section_9() {
 #[ignore = "pending layout engine implementation (M1)"]
 fn invariant_append_only_stability() {
     let commits = vec![
-        CommitIn { oid: F, parents: smallvec![E, C] },
-        CommitIn { oid: E, parents: smallvec![D] },
-        CommitIn { oid: D, parents: smallvec![B] },
-        CommitIn { oid: C, parents: smallvec![B] },
-        CommitIn { oid: B, parents: smallvec![A] },
-        CommitIn { oid: A, parents: smallvec![] },
+        CommitIn {
+            oid: F,
+            parents: smallvec![E, C],
+        },
+        CommitIn {
+            oid: E,
+            parents: smallvec![D],
+        },
+        CommitIn {
+            oid: D,
+            parents: smallvec![B],
+        },
+        CommitIn {
+            oid: C,
+            parents: smallvec![B],
+        },
+        CommitIn {
+            oid: B,
+            parents: smallvec![A],
+        },
+        CommitIn {
+            oid: A,
+            parents: smallvec![],
+        },
     ];
 
     for split in 1..commits.len() {
         let (rows_prefix, _) = git_braid_core::layout::layout(&commits[..split], None);
-        let (rows_full, _)   = git_braid_core::layout::layout(&commits, None);
+        let (rows_full, _) = git_braid_core::layout::layout(&commits, None);
         assert_eq!(
             rows_prefix,
             rows_full[..split],
@@ -173,20 +255,41 @@ fn invariant_append_only_stability() {
 #[ignore = "pending layout engine implementation (M1)"]
 fn invariant_boundary_continuation() {
     let commits = vec![
-        CommitIn { oid: F, parents: smallvec![E, C] },
-        CommitIn { oid: E, parents: smallvec![D] },
-        CommitIn { oid: D, parents: smallvec![B] },
-        CommitIn { oid: C, parents: smallvec![B] },
-        CommitIn { oid: B, parents: smallvec![A] },
-        CommitIn { oid: A, parents: smallvec![] },
+        CommitIn {
+            oid: F,
+            parents: smallvec![E, C],
+        },
+        CommitIn {
+            oid: E,
+            parents: smallvec![D],
+        },
+        CommitIn {
+            oid: D,
+            parents: smallvec![B],
+        },
+        CommitIn {
+            oid: C,
+            parents: smallvec![B],
+        },
+        CommitIn {
+            oid: B,
+            parents: smallvec![A],
+        },
+        CommitIn {
+            oid: A,
+            parents: smallvec![],
+        },
     ];
 
     let split = 3;
     let (rows_full, _) = git_braid_core::layout::layout(&commits, None);
 
     let (rows_batch1, boundary) = git_braid_core::layout::layout(&commits[..split], None);
-    let (rows_batch2, _)        = git_braid_core::layout::layout(&commits[split..], Some(boundary));
+    let (rows_batch2, _) = git_braid_core::layout::layout(&commits[split..], Some(boundary));
 
     let rows_batched: Vec<_> = rows_batch1.into_iter().chain(rows_batch2).collect();
-    assert_eq!(rows_full, rows_batched, "boundary continuation produced different rows than one-shot layout");
+    assert_eq!(
+        rows_full, rows_batched,
+        "boundary continuation produced different rows than one-shot layout"
+    );
 }

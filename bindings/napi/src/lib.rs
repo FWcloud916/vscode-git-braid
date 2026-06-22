@@ -41,11 +41,7 @@ use napi_derive::napi;
 ///
 /// **Stub** — returns an empty buffer until M0/M1 are implemented.
 #[napi]
-pub fn get_graph_batch(
-    _repo_path: String,
-    _offset: u32,
-    _limit: u32,
-) -> napi::Result<Vec<u8>> {
+pub fn get_graph_batch(_repo_path: String, _offset: u32, _limit: u32) -> napi::Result<Vec<u8>> {
     // TODO(M1): call git_braid_core::walk_commits + layout + encode_batch
     Ok(Vec::new())
 }

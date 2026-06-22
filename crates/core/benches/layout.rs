@@ -43,9 +43,7 @@ fn bench_layout_linear(c: &mut Criterion) {
             b.iter(|| {
                 // Will panic until layout is implemented.
                 // Replace with a proper call once M1 lands.
-                let _ = std::panic::catch_unwind(|| {
-                    git_braid_core::layout::layout(commits, None)
-                });
+                let _ = std::panic::catch_unwind(|| git_braid_core::layout::layout(commits, None));
             });
         });
     }

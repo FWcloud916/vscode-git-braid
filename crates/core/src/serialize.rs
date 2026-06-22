@@ -31,10 +31,7 @@ use crate::model::RowLayout;
 /// # Status
 ///
 /// **Unimplemented** — returns `todo!()`.
-pub fn encode_batch(
-    _rows: &[RowLayout],
-    _string_pool: &[&str],
-) -> Vec<u8> {
+pub fn encode_batch(_rows: &[RowLayout], _string_pool: &[&str]) -> Vec<u8> {
     todo!("encode_batch — implement alongside webview renderer (Phase 0/1)")
 }
 
