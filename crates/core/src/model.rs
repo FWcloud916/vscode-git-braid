@@ -131,3 +131,42 @@ pub struct LaneEntry {
     pub waiting_for: Oid,
     pub color: ColorId,
 }
+
+// ─── Per-commit metadata (BRAI v2) ─────────────────────────────────────────────
+
+/// Ref classification for a [`RefLabel`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum RefKind {
+    LocalBranch = 0,
+    RemoteBranch = 1,
+    Tag = 2,
+    Head = 3,
+    Stash = 4,
+}
+
+/// A single ref (branch/tag/stash/HEAD) attached to a commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefLabel {
+    pub name: String,
+    pub kind: RefKind,
+}
+
+/// Lightweight per-commit metadata, aligned 1:1 with [`CommitIn`] / [`RowLayout`]
+/// by index.
+///
+/// Never influences lane/color/segments — purely additive. Geometry stays in
+/// [`RowLayout`]; this carries the human-facing fields (subject, author, time,
+/// refs) that the detail panel and row labels need.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitMeta {
+    pub oid: Oid,
+    /// First line of the commit message (the subject).
+    pub subject: String,
+    /// Author name (UTF-8, lossy fallback to empty string).
+    pub author: String,
+    /// Committer time as Unix epoch seconds.
+    pub commit_time: i64,
+    /// Refs pointing at this commit (branches, tags, HEAD, stash).
+    pub refs: SmallVec<[RefLabel; 2]>,
+}

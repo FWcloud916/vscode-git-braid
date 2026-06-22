@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let t0 = Instant::now();
-    let commits = walk_commits(&repo_path, &opts)?;
+    let (commits, _metas) = walk_commits(&repo_path, &opts)?;
     let elapsed = t0.elapsed();
 
     // Header

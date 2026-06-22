@@ -501,6 +501,7 @@ name = "git-braid-napi"
 version = "0.1.0"
 dependencies = [
  "git-braid-core",
+ "gix",
  "napi",
  "napi-build",
  "napi-derive",

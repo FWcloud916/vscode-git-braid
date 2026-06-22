@@ -27,3 +27,24 @@
  * from the previous batch boundary instead of recomputing from the repository root.
  */
 export declare function getGraphBatch(repoPath: string, offset: number, limit: number): Buffer
+
+/** Full detail of a single commit, for the commit detail panel. */
+export interface CommitDetail {
+  oid: string
+  parents: string[]
+  authorName: string
+  authorEmail: string
+  authorTime: number
+  committerName: string
+  committerEmail: string
+  commitTime: number
+  message: string
+}
+
+/**
+ * Fetch full detail for a single commit by OID hex string.
+ *
+ * @param repoPath — absolute path to the git worktree or `.git` directory.
+ * @param oidHex   — full 40-character hex OID.
+ */
+export declare function getCommitDetail(repoPath: string, oidHex: string): CommitDetail

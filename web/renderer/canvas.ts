@@ -29,7 +29,7 @@
  * so the caller can request the next page via `requestBatch`.
  *
  * See `docs/specs/layout-spec.md` for the RowLayout / Segment contract that
- * this renderer consumes, and `web/renderer/decode.ts` for the BRAI v1 decoder.
+ * this renderer consumes, and `web/renderer/decode.ts` for the BRAI v2 decoder.
  */
 
 import {
@@ -39,6 +39,34 @@ import {
   SEG_KIND_STRAIGHT,
   FLAG_IS_MERGE,
 } from "./decode";
+
+// Polyfill roundRect for environments that don't have it (e.g. older jsdom in
+// tests). Modern browsers / VS Code's Electron implement it natively.
+if (
+  typeof CanvasRenderingContext2D !== "undefined" &&
+  !CanvasRenderingContext2D.prototype.roundRect
+) {
+  CanvasRenderingContext2D.prototype.roundRect = function (
+    this: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    r: number | DOMPointInit | (number | DOMPointInit)[],
+  ): void {
+    const radius = typeof r === "number" ? r : Array.isArray(r) ? (r[0] as number) ?? 0 : 0;
+    this.moveTo(x + radius, y);
+    this.lineTo(x + w - radius, y);
+    this.quadraticCurveTo(x + w, y, x + w, y + radius);
+    this.lineTo(x + w, y + h - radius);
+    this.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    this.lineTo(x + radius, y + h);
+    this.quadraticCurveTo(x, y + h, x, y + h - radius);
+    this.lineTo(x, y + radius);
+    this.quadraticCurveTo(x, y, x + radius, y);
+    this.closePath();
+  };
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -77,6 +105,25 @@ function paletteColor(id: number): string {
   return PALETTE[id % PALETTE.length] ?? "#6A9FE6";
 }
 
+/** Return the chip colour for a given RefKind (matches decode.ts REF_KIND_*). */
+function refChipColor(kind: number): string {
+  switch (kind) {
+    case 3:  return "#E6D46A"; // HEAD — yellow
+    case 0:  return "#6AE699"; // LocalBranch — green
+    case 2:  return "#E6886A"; // Tag — orange
+    case 1:  return "#9F6AE6"; // RemoteBranch — purple
+    case 4:  return "#E66A9F"; // Stash — pink
+    default: return "#6A9FE6";
+  }
+}
+
+/** Return the full 40-char hex of a 20-byte OID. */
+function fullOid(oid: Uint8Array): string {
+  return Array.from(oid)
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 // ── CanvasRenderer ────────────────────────────────────────────────────────────
 
 export class CanvasRenderer {
@@ -98,12 +145,20 @@ export class CanvasRenderer {
   private _atEnd = false;
   private _pendingMore = false;
 
+  // Selection state (-1 = nothing selected).
+  private _selectedRow = -1;
+
   /**
    * Called when more rows are needed (visible window nearing the loaded tail).
    * Receives the current loaded row count as the `offset` for the next batch.
    * Set before the first `appendRows` call so the initial paint can fire it.
    */
   onNeedMore?: ((loadedCount: number) => void) | undefined;
+
+  /**
+   * Called when the user clicks a commit row. Receives the full 40-char hex OID.
+   */
+  onSelect?: ((oidHex: string) => void) | undefined;
 
   /**
    * @param _container  The element that acts as the scroll viewport. It must
@@ -134,6 +189,21 @@ export class CanvasRenderer {
     _container.addEventListener("scroll", () => {
       this._scrollTop = _container.scrollTop;
       this._paint();
+    });
+
+    // Click selects a row and notifies the host.
+    _container.addEventListener("click", (e: MouseEvent) => {
+      const rect = this._canvas.getBoundingClientRect();
+      const y = e.clientY - rect.top + this._scrollTop;
+      const row = Math.floor(y / ROW_HEIGHT);
+      if (row >= 0 && row < this._totalRows) {
+        this._selectedRow = row;
+        this._paint();
+        const r = this._rows[row];
+        if (r) {
+          this.onSelect?.(fullOid(r.oid));
+        }
+      }
     });
 
     // Resize keeps the canvas sized to the viewport.
@@ -224,6 +294,13 @@ export class CanvasRenderer {
     // X-coordinate of the OID text column (to the right of all lanes).
     const textX = PAD_X + (this._maxLane + 2) * LANE_WIDTH;
 
+    // ── 0. Selection highlight (full-width band behind everything) ────────
+    if (this._selectedRow >= visibleStart && this._selectedRow < visibleEnd) {
+      const y = this._selectedRow * ROW_HEIGHT - scrollTop;
+      this._ctx.fillStyle = "rgba(100, 159, 230, 0.15)"; // soft blue
+      this._ctx.fillRect(0, y, cw, ROW_HEIGHT);
+    }
+
     // ── 1. Draw segments first (nodes are painted on top) ────────────────
     for (let i = visibleStart; i < visibleEnd; i++) {
       const row = this._rows[i];
@@ -265,9 +342,45 @@ export class CanvasRenderer {
         this._ctx.stroke();
       }
 
-      // Short OID (7 hex chars) to the right of the lane graph.
-      this._ctx.fillStyle = "rgba(160,160,160,0.85)";
-      this._ctx.fillText(shortOid(row.oid), textX, y + 4);
+      // Text column: ref chips, then subject, then dimmed short OID.
+      let tx = textX;
+
+      // Ref chips (sorted: HEAD first, then local branches, tags, remotes).
+      const sortedRefs = [...(row.refs ?? [])].sort((a, b) => a.kind - b.kind);
+      for (const ref of sortedRefs) {
+        const label = ref.name;
+        const chipColor = refChipColor(ref.kind);
+        this._ctx.font = "10px monospace";
+        const tw = this._ctx.measureText(label).width;
+        const chipW = tw + 8;
+        const chipH = 14;
+        const chipY = y - chipH / 2;
+
+        this._ctx.beginPath();
+        this._ctx.roundRect(tx, chipY, chipW, chipH, 3);
+        this._ctx.fillStyle = chipColor + "33"; // ~20% opacity fill
+        this._ctx.fill();
+        this._ctx.strokeStyle = chipColor;
+        this._ctx.lineWidth = 0.8;
+        this._ctx.stroke();
+
+        this._ctx.fillStyle = chipColor;
+        this._ctx.fillText(label, tx + 4, y + 4);
+        tx += chipW + 4;
+      }
+
+      // Subject text (after chips).
+      if (row.subject) {
+        this._ctx.font = "11px monospace";
+        this._ctx.fillStyle = "rgba(200,200,200,0.9)";
+        this._ctx.fillText(row.subject, tx, y + 4);
+        tx += this._ctx.measureText(row.subject).width + 8;
+      }
+
+      // Short OID (dimmed, after subject).
+      this._ctx.font = "11px monospace";
+      this._ctx.fillStyle = "rgba(130,130,130,0.6)";
+      this._ctx.fillText(shortOid(row.oid), tx, y + 4);
     }
 
     // ── 3. Prefetch trigger ───────────────────────────────────────────────

@@ -14,6 +14,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 git-braid-core = { path = "../../crates/core" }
+gix         = { workspace = true }
 napi        = { workspace = true }
 napi-derive = { workspace = true }
 

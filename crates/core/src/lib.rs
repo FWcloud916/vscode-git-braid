@@ -30,4 +30,6 @@ pub mod walk;
 
 // Re-export the most commonly-used public API.
 pub use layout::layout;
-pub use model::{BoundaryState, CommitIn, LaneEntry, RowLayout, SegKind, Segment};
+pub use model::{
+    BoundaryState, CommitIn, CommitMeta, LaneEntry, RefKind, RefLabel, RowLayout, SegKind, Segment,
+};

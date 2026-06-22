@@ -13,25 +13,29 @@
  * # Message shapes
  *
  * Host → Webview:
- *   `{ type: "batch", payload: ArrayBuffer }` — binary-encoded RowLayout batch
+ *   `{ type: "batch", payload: ArrayBuffer }` — BRAI v2 binary batch
+ *   `{ type: "commitDetail", detail: CommitDetail }` — single commit full detail
  *   `{ type: "error", message: string }`
  *
  * Webview → Host:
  *   `{ type: "requestBatch", offset: number, limit: number }`
  *   `{ type: "ready" }` — sent once the webview JS has initialised
+ *   `{ type: "selectCommit", oid: string }` — user clicked a commit row
  */
 
 import * as vscode from "vscode";
-import { getGraphBatch } from "@git-braid/native";
+import { getGraphBatch, getCommitDetail, type CommitDetail } from "@git-braid/native";
 
 /** Messages the webview can send to the extension host. */
 type WebviewMessage =
   | { type: "ready" }
-  | { type: "requestBatch"; offset: number; limit: number };
+  | { type: "requestBatch"; offset: number; limit: number }
+  | { type: "selectCommit"; oid: string };
 
 /** Messages the extension host can send to the webview. */
 type HostMessage =
   | { type: "batch"; payload: ArrayBuffer }
+  | { type: "commitDetail"; detail: CommitDetail }
   | { type: "error"; message: string };
 
 export class WebviewBridge implements vscode.Disposable {
@@ -100,6 +104,9 @@ export class WebviewBridge implements vscode.Disposable {
       case "requestBatch":
         void this._sendBatch(message.offset, message.limit);
         break;
+      case "selectCommit":
+        void this._sendCommitDetail(message.oid);
+        break;
     }
   }
 
@@ -129,6 +136,20 @@ export class WebviewBridge implements vscode.Disposable {
         result.byteOffset + result.byteLength,
       ) as ArrayBuffer;
       await this._postMessage({ type: "batch", payload });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await this._postMessage({ type: "error", message });
+    }
+  }
+
+  /**
+   * Fetch full commit detail from the native addon and post it to the webview.
+   * Called when the webview reports a `selectCommit` message (user clicked a row).
+   */
+  private async _sendCommitDetail(oidHex: string): Promise<void> {
+    try {
+      const detail = getCommitDetail(this._repoPath, oidHex);
+      await this._postMessage({ type: "commitDetail", detail });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this._postMessage({ type: "error", message });

@@ -7,6 +7,7 @@
 use std::collections::HashSet;
 use std::process::Command;
 
+use git_braid_core::model::RefKind;
 use git_braid_core::walk::{walk_commits, SortOrder, WalkOptions};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -73,7 +74,8 @@ fn make_merge_repo() -> tempfile::TempDir {
 fn topo_order_parents_come_after_children() {
     let repo = make_merge_repo();
 
-    let commits = walk_commits(repo.path(), &WalkOptions::default()).expect("walk_commits failed");
+    let (commits, metas) =
+        walk_commits(repo.path(), &WalkOptions::default()).expect("walk_commits failed");
 
     // Should have exactly 4 commits: A, B, C, M
     assert_eq!(
@@ -81,6 +83,45 @@ fn topo_order_parents_come_after_children() {
         4,
         "expected 4 commits, got {}",
         commits.len()
+    );
+
+    // metas are index-aligned with commits.
+    assert_eq!(metas.len(), commits.len(), "metas must align with commits");
+    for (c, m) in commits.iter().zip(metas.iter()) {
+        assert_eq!(c.oid, m.oid, "meta OID must match commit OID by index");
+    }
+
+    // Subjects are populated (A/B/C/M were committed with those messages).
+    let subjects: HashSet<_> = metas.iter().map(|m| m.subject.clone()).collect();
+    for want in ["A", "B", "C", "M"] {
+        assert!(
+            subjects.contains(want),
+            "expected subject {want:?} in {subjects:?}"
+        );
+    }
+
+    // Author was set to "Test" for every commit.
+    assert!(
+        metas.iter().all(|m| m.author == "Test"),
+        "expected all authors to be 'Test'"
+    );
+
+    // HEAD points at the merge commit M; some commit must carry the HEAD ref.
+    let has_head = metas
+        .iter()
+        .any(|m| m.refs.iter().any(|r| r.kind == RefKind::Head));
+    assert!(has_head, "expected a HEAD ref label on some commit");
+
+    // The `main` and `feature` branch labels must appear.
+    let branch_names: HashSet<_> = metas
+        .iter()
+        .flat_map(|m| m.refs.iter())
+        .filter(|r| r.kind == RefKind::LocalBranch)
+        .map(|r| r.name.clone())
+        .collect();
+    assert!(
+        branch_names.contains("main") && branch_names.contains("feature"),
+        "expected main + feature branches in {branch_names:?}"
     );
 
     // No duplicate OIDs
@@ -119,8 +160,9 @@ fn limit_caps_output() {
         limit: Some(2),
         ..Default::default()
     };
-    let commits = walk_commits(repo.path(), &opts).expect("walk_commits failed");
+    let (commits, metas) = walk_commits(repo.path(), &opts).expect("walk_commits failed");
     assert_eq!(commits.len(), 2);
+    assert_eq!(metas.len(), 2, "metas must align with commits under limit");
 }
 
 /// Date-order mode: no duplicates, count matches, no-dup guaranteed.
@@ -133,7 +175,7 @@ fn date_order_no_duplicates() {
         order: SortOrder::Date,
         ..Default::default()
     };
-    let commits = walk_commits(repo.path(), &opts).expect("walk_commits failed");
+    let (commits, _metas) = walk_commits(repo.path(), &opts).expect("walk_commits failed");
 
     assert_eq!(commits.len(), 4);
     let oid_set: HashSet<_> = commits.iter().map(|c| c.oid).collect();
@@ -167,7 +209,7 @@ fn first_parent_only() {
         first_parent_only: true,
         ..Default::default()
     };
-    let commits = walk_commits(repo.path(), &opts).expect("walk_commits failed");
+    let (commits, _metas) = walk_commits(repo.path(), &opts).expect("walk_commits failed");
 
     // All 4 commits appear (C is a tip via the `feature` ref; only traversal
     // edges are limited to first parents, not which tips are included).
@@ -192,7 +234,8 @@ fn empty_repo_returns_empty() {
     git(p, &["config", "user.email", "test@example.com"]);
     git(p, &["config", "user.name", "Test"]);
 
-    let commits =
+    let (commits, metas) =
         walk_commits(p, &WalkOptions::default()).expect("walk_commits on empty repo failed");
     assert!(commits.is_empty(), "expected empty Vec for empty repo");
+    assert!(metas.is_empty(), "expected empty metas for empty repo");
 }

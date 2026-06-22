@@ -71,15 +71,74 @@ pub fn get_graph_batch(repo_path: String, offset: u32, limit: u32) -> napi::Resu
         ..Default::default()
     };
 
-    let commits = walk_commits(path, &opts)
+    let (commits, metas) = walk_commits(path, &opts)
         .map_err(|e| napi::Error::from_reason(format!("walk_commits: {e}")))?;
 
     // Compute layout for all walked commits (O(n·L) where L = concurrent branch count).
     let (rows, _boundary) = layout(&commits, None);
 
-    // Slice to the requested window; silently clamp if offset is past the end.
+    // Slice rows and metas identically; silently clamp if offset is past the end.
     let start = (offset as usize).min(rows.len());
     let batch = &rows[start..];
+    let batch_metas = &metas[start..];
 
-    Ok(Buffer::from(encode_batch(batch, &[])))
+    Ok(Buffer::from(encode_batch(batch, batch_metas)))
+}
+
+/// Full detail of a single commit, for the commit detail panel.
+///
+/// napi-rs maps the snake_case Rust fields to camelCase in TypeScript
+/// (`author_name` → `authorName`, etc.).
+#[napi(object)]
+pub struct CommitDetail {
+    pub oid: String,
+    pub parents: Vec<String>,
+    pub author_name: String,
+    pub author_email: String,
+    pub author_time: f64,
+    pub committer_name: String,
+    pub committer_email: String,
+    pub commit_time: f64,
+    pub message: String,
+}
+
+/// Fetch full detail for a single commit by OID hex string.
+///
+/// `oid_hex` is the full 40-character hex SHA-1.
+/// Returns author/committer name, email, timestamps, and the full message.
+/// The changed-file list is added in M3 Slice 2.
+#[napi]
+pub fn get_commit_detail(repo_path: String, oid_hex: String) -> napi::Result<CommitDetail> {
+    use gix::bstr::ByteSlice;
+
+    let path = std::path::Path::new(&repo_path);
+    let repo = gix::open(path).map_err(|e| napi::Error::from_reason(format!("open repo: {e}")))?;
+
+    let oid = gix::ObjectId::from_hex(oid_hex.trim().as_bytes())
+        .map_err(|e| napi::Error::from_reason(format!("invalid OID '{oid_hex}': {e}")))?;
+
+    let obj = repo
+        .find_object(oid)
+        .map_err(|e| napi::Error::from_reason(format!("find_object: {e}")))?;
+    let commit = obj
+        .try_into_commit()
+        .map_err(|_| napi::Error::from_reason("object is not a commit".to_string()))?;
+    let data = commit
+        .decode()
+        .map_err(|e| napi::Error::from_reason(format!("decode commit: {e}")))?;
+
+    let author = data.author();
+    let committer = data.committer();
+
+    Ok(CommitDetail {
+        oid: oid.to_hex().to_string(),
+        parents: data.parents().map(|p| p.to_hex().to_string()).collect(),
+        author_name: author.name.to_str_lossy().into_owned(),
+        author_email: author.email.to_str_lossy().into_owned(),
+        author_time: author.time.seconds as f64,
+        committer_name: committer.name.to_str_lossy().into_owned(),
+        committer_email: committer.email.to_str_lossy().into_owned(),
+        commit_time: committer.time.seconds as f64,
+        message: data.message.to_str_lossy().into_owned(),
+    })
 }

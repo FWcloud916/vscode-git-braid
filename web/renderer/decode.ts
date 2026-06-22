@@ -1,17 +1,22 @@
 /**
- * BRAI v1 binary batch decoder.
+ * BRAI v2 binary batch decoder.
  *
  * Mirrors `decode_batch` from `crates/core/src/serialize.rs` using DataView
  * (little-endian). Runs in the webview's browser context with no Node.js APIs.
  *
- * # Wire format (v1) — summary
+ * # Wire format (v2) — summary
  *
- *   Header (16 B): magic[4] version[1] reserved[1] str_count[2] row_count[4] seg_count[4]
+ *   Header (20 B): magic[4] version[1] reserved[1] str_count[2] row_count[4]
+ *                  seg_count[4] ref_count[4]
  *   StringPool:    for each string: len[4] utf8[len]
- *   CommitRow×N:   oid[20] lane[2] color[1] flags[1] seg_offset[4] seg_count[4]   = 32 B
- *   SegmentRow×M:  from_lane[2] to_lane[2] color[1] kind[1] pad[2]                 = 8 B
+ *   CommitRow×N:   oid[20] lane[2] color[1] flags[1] seg_offset[4] seg_count[4]
+ *                  subject_idx[4] author_idx[4] commit_time[8] ref_offset[4]
+ *                  ref_count[2] pad[2]                                        = 56 B
+ *   RefRow×R:      name_idx[4] kind[1] pad[3]                                 = 8 B
+ *   SegmentRow×M:  from_lane[2] to_lane[2] color[1] kind[1] pad[2]            = 8 B
  *
- * All multi-byte integers are little-endian.
+ * Buffer order: Header · StringPool · CommitRow · RefRow · SegmentRow.
+ * All multi-byte integers are little-endian (except the magic, big-endian).
  * Full spec: `crates/core/src/serialize.rs`.
  */
 
@@ -30,6 +35,13 @@ export const FLAG_IS_TIP           = 0x08;
 export const FLAG_IS_SYNTHETIC     = 0x10;
 export const FLAG_IS_STASH         = 0x20;
 
+/** RefKind numeric values matching Rust `RefKind` repr(u8). */
+export const REF_KIND_LOCAL_BRANCH  = 0;
+export const REF_KIND_REMOTE_BRANCH = 1;
+export const REF_KIND_TAG           = 2;
+export const REF_KIND_HEAD          = 3;
+export const REF_KIND_STASH         = 4;
+
 /** A single line segment in the gap below a commit row. */
 export interface DecodedSegment {
   /** Lane at the top of the gap (current-row side). */
@@ -42,7 +54,15 @@ export interface DecodedSegment {
   kind: number;
 }
 
-/** Decoded geometry for one commit row. */
+/** A single decoded ref label attached to a commit. */
+export interface DecodedRef {
+  /** Display name (branch/tag/stash name, or "HEAD"). */
+  name: string;
+  /** Ref kind: one of the REF_KIND_* constants. */
+  kind: number;
+}
+
+/** Decoded geometry + metadata for one commit row. */
 export interface DecodedRow {
   /** Raw SHA-1 object id, 20 bytes. Use `shortOid()` for display. */
   oid: Uint8Array;
@@ -54,15 +74,28 @@ export interface DecodedRow {
   flags: number;
   /** Segments in the gap *below* this row. */
   segments: DecodedSegment[];
+  /** Commit subject (first line of the message); empty string if absent. */
+  subject: string;
+  /** Author display name; empty string if absent. */
+  author: string;
+  /** Commit time as Unix epoch seconds. */
+  commitTime: number;
+  /** Ref labels attached to this commit; may be empty. */
+  refs: DecodedRef[];
 }
 
 // ── Decoder ──────────────────────────────────────────────────────────────────
 
 const BRAI_MAGIC = 0x42524149; // "BRAI" as big-endian u32
-const BRAI_VERSION = 1;
+const BRAI_VERSION = 2;
+const HEADER_SIZE = 20;
+const COMMIT_ROW_SIZE = 56;
+const REF_ROW_SIZE = 8;
+const SEG_ROW_SIZE = 8;
+const ABSENT_IDX = 0xffffffff; // u32::MAX = absent/empty string
 
 /**
- * Decode a BRAI v1 binary batch into an array of `DecodedRow`.
+ * Decode a BRAI v2 binary batch into an array of `DecodedRow`.
  *
  * Throws a descriptive `Error` on malformed input (bad magic, wrong version,
  * truncated data). The caller should catch and surface these as console errors.
@@ -74,8 +107,8 @@ export function decodeBatch(buffer: ArrayBuffer): DecodedRow[] {
   const view = new DataView(buffer);
 
   // ── Header ─────────────────────────────────────────────────────────────
-  if (buffer.byteLength < 16) {
-    throw new Error("BRAI: buffer too short for header");
+  if (buffer.byteLength < HEADER_SIZE) {
+    throw new Error("BRAI: buffer too short for v2 header");
   }
   // Read magic as a big-endian u32 so a single comparison catches all 4 bytes.
   if (view.getUint32(0, false) !== BRAI_MAGIC) {
@@ -88,30 +121,38 @@ export function decodeBatch(buffer: ArrayBuffer): DecodedRow[] {
   // byte [5] = reserved
   const strCount = view.getUint16(6, true);
   const rowCount = view.getUint32(8, true);
-  // [12..16] = seg_count (informational; we recompute from per-row seg_count fields)
+  // [12..16] = seg_count (informational; recomputed from per-row seg_count)
+  // [16..20] = ref_count (informational; recomputed from per-row ref_count)
 
-  let pos = 16;
+  let pos = HEADER_SIZE;
 
-  // ── StringPool (skip — not stored in DecodedRow) ────────────────────────
+  // ── StringPool ──────────────────────────────────────────────────────────
+  const stringPool: string[] = new Array<string>(strCount);
+  const td = new TextDecoder("utf-8");
   for (let i = 0; i < strCount; i++) {
     if (pos + 4 > buffer.byteLength) {
       throw new Error("BRAI: string pool header truncated");
     }
     const len = view.getUint32(pos, true);
-    pos += 4 + len;
-    if (pos > buffer.byteLength) {
+    pos += 4;
+    if (pos + len > buffer.byteLength) {
       throw new Error("BRAI: string pool body truncated");
     }
+    stringPool[i] = td.decode(new Uint8Array(buffer, pos, len));
+    pos += len;
+  }
+
+  function getString(idx: number): string {
+    if (idx === ABSENT_IDX) return "";
+    return stringPool[idx] ?? "";
   }
 
   // ── CommitRow table ─────────────────────────────────────────────────────
   const commitRowsStart = pos;
-  const commitSectionLen = rowCount * 32;
-  if (pos + commitSectionLen > buffer.byteLength) {
+  if (commitRowsStart + rowCount * COMMIT_ROW_SIZE > buffer.byteLength) {
     throw new Error("BRAI: commit table truncated");
   }
 
-  // Two-pass: parse row metas first, then assemble segments below.
   interface RowMeta {
     oid: Uint8Array;
     lane: number;
@@ -119,29 +160,52 @@ export function decodeBatch(buffer: ArrayBuffer): DecodedRow[] {
     flags: number;
     segOffset: number;
     segCount: number;
+    subjectIdx: number;
+    authorIdx: number;
+    commitTime: number;
+    refOffset: number;
+    refCount: number;
   }
 
   const metas: RowMeta[] = new Array<RowMeta>(rowCount);
   for (let i = 0; i < rowCount; i++) {
-    const b = commitRowsStart + i * 32;
+    const b = commitRowsStart + i * COMMIT_ROW_SIZE;
     metas[i] = {
-      oid: new Uint8Array(buffer, b, 20),
-      lane:      view.getUint16(b + 20, true),
-      color:     view.getUint8 (b + 22),
-      flags:     view.getUint8 (b + 23),
-      segOffset: view.getUint32(b + 24, true),
-      segCount:  view.getUint32(b + 28, true),
+      oid:        new Uint8Array(buffer, b, 20),
+      lane:       view.getUint16(b + 20, true),
+      color:      view.getUint8 (b + 22),
+      flags:      view.getUint8 (b + 23),
+      segOffset:  view.getUint32(b + 24, true),
+      segCount:   view.getUint32(b + 28, true),
+      subjectIdx: view.getUint32(b + 32, true),
+      authorIdx:  view.getUint32(b + 36, true),
+      // commit_time is i64 LE — read as two u32s and combine (safe for the
+      // foreseeable future; epoch seconds stay well within ±2^53).
+      commitTime: view.getUint32(b + 40, true) + view.getUint32(b + 44, true) * 0x100000000,
+      refOffset:  view.getUint32(b + 48, true),
+      refCount:   view.getUint16(b + 52, true),
+      // [b+54..b+56] = padding, ignored
     };
+  }
+  pos = commitRowsStart + rowCount * COMMIT_ROW_SIZE;
+
+  // ── RefRow table ──────────────────────────────────────────────────────
+  let totalRefs = 0;
+  for (let i = 0; i < rowCount; i++) {
+    totalRefs += metas[i]?.refCount ?? 0;
+  }
+  const refRowsStart = pos;
+  if (refRowsStart + totalRefs * REF_ROW_SIZE > buffer.byteLength) {
+    throw new Error("BRAI: ref table truncated");
   }
 
   // ── SegmentRow table ────────────────────────────────────────────────────
-  const segRowsStart = commitRowsStart + commitSectionLen;
-  // Validate that the segment section fits.
+  const segRowsStart = refRowsStart + totalRefs * REF_ROW_SIZE;
   let totalSegs = 0;
   for (let i = 0; i < rowCount; i++) {
     totalSegs += metas[i]?.segCount ?? 0;
   }
-  if (segRowsStart + totalSegs * 8 > buffer.byteLength) {
+  if (segRowsStart + totalSegs * SEG_ROW_SIZE > buffer.byteLength) {
     throw new Error("BRAI: segment table truncated");
   }
 
@@ -149,27 +213,45 @@ export function decodeBatch(buffer: ArrayBuffer): DecodedRow[] {
   const rows: DecodedRow[] = new Array<DecodedRow>(rowCount);
   for (let i = 0; i < rowCount; i++) {
     const m = metas[i];
-    if (m === undefined) continue; // should not happen; guards noUncheckedIndexedAccess
+    if (m === undefined) continue; // guards noUncheckedIndexedAccess
+
+    // Refs
+    const refs: DecodedRef[] = new Array<DecodedRef>(m.refCount);
+    for (let j = 0; j < m.refCount; j++) {
+      const rb = refRowsStart + (m.refOffset + j) * REF_ROW_SIZE;
+      refs[j] = {
+        name: getString(view.getUint32(rb, true)),
+        kind: view.getUint8(rb + 4),
+        // [rb+5..rb+8] = padding, ignored
+      };
+    }
+
+    // Segments
     const segments: DecodedSegment[] = new Array<DecodedSegment>(m.segCount);
     for (let j = 0; j < m.segCount; j++) {
-      const b = segRowsStart + (m.segOffset + j) * 8;
-      if (b + 8 > buffer.byteLength) {
+      const sb = segRowsStart + (m.segOffset + j) * SEG_ROW_SIZE;
+      if (sb + SEG_ROW_SIZE > buffer.byteLength) {
         throw new Error(`BRAI: segment [row=${i} seg=${j}] out of bounds`);
       }
       segments[j] = {
-        fromLane: view.getUint16(b,     true),
-        toLane:   view.getUint16(b + 2, true),
-        color:    view.getUint8 (b + 4),
-        kind:     view.getUint8 (b + 5),
-        // [b+6..b+8] = padding, ignored
+        fromLane: view.getUint16(sb,     true),
+        toLane:   view.getUint16(sb + 2, true),
+        color:    view.getUint8 (sb + 4),
+        kind:     view.getUint8 (sb + 5),
+        // [sb+6..sb+8] = padding, ignored
       };
     }
+
     rows[i] = {
-      oid:      m.oid,
-      lane:     m.lane,
-      color:    m.color,
-      flags:    m.flags,
+      oid:        m.oid,
+      lane:       m.lane,
+      color:      m.color,
+      flags:      m.flags,
       segments,
+      subject:    getString(m.subjectIdx),
+      author:     getString(m.authorIdx),
+      commitTime: m.commitTime,
+      refs,
     };
   }
 

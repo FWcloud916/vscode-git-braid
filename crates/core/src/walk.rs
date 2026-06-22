@@ -21,9 +21,11 @@
 //! layout engine depends on, and why we use the dedicated topo traversal rather
 //! than a plain breadth-first rev-walk (which would not guarantee it).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use crate::model::{CommitIn, Oid};
+use gix::bstr::{BStr, ByteSlice};
+
+use crate::model::{CommitIn, CommitMeta, Oid, RefKind, RefLabel};
 
 /// Which ordering policy to apply to the commit walk.
 #[derive(Debug, Clone, Copy, Default)]
@@ -60,6 +62,12 @@ pub struct WalkOptions {
 /// parents appear at some index `j > i`. This is the invariant required by
 /// [`crate::layout::layout`].
 ///
+/// # Returns
+///
+/// A tuple of `(commits, metas)` where `metas[i]` is the per-commit metadata
+/// (subject / author / time / refs) for `commits[i]` — index-aligned.
+/// `CommitIn` stays geometry-pure; all human-facing fields live in `CommitMeta`.
+///
 /// # Errors
 ///
 /// Returns an error if the path is not a valid git repository or if ODB access
@@ -67,8 +75,42 @@ pub struct WalkOptions {
 pub fn walk_commits(
     repo_path: &std::path::Path,
     opts: &WalkOptions,
-) -> Result<Vec<CommitIn>, Box<dyn std::error::Error>> {
+) -> Result<(Vec<CommitIn>, Vec<CommitMeta>), Box<dyn std::error::Error>> {
     let repo = gix::open(repo_path)?;
+
+    // ── Build OID → refs map and resolve HEAD ───────────────────────────────
+
+    let mut ref_map: HashMap<Oid, smallvec::SmallVec<[RefLabel; 2]>> = HashMap::new();
+    {
+        let refs_platform = repo.references()?;
+        for r in refs_platform.all()? {
+            let mut r = match r {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let Some((kind, name)) = classify_ref(r.name().as_bstr()) else {
+                continue;
+            };
+            let Ok(commit_id) = r.peel_to_commit() else {
+                continue;
+            };
+            let oid = oid_to_fixed20(&commit_id.id);
+            ref_map
+                .entry(oid)
+                .or_default()
+                .push(RefLabel { name, kind });
+        }
+    }
+
+    // Attach a synthetic "HEAD" label to whatever commit HEAD points at.
+    // `head_id()` fails on an unborn HEAD (fresh repo) — skip gracefully.
+    if let Ok(head_id) = repo.head_id() {
+        let oid = oid_to_fixed20(&head_id.detach());
+        ref_map.entry(oid).or_default().push(RefLabel {
+            name: "HEAD".to_string(),
+            kind: RefKind::Head,
+        });
+    }
 
     // ── Collect tips: all refs + HEAD, deduped ──────────────────────────────
 
@@ -105,7 +147,7 @@ pub fn walk_commits(
 
     if tips.is_empty() {
         // Empty repo or no commits reachable from any ref.
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
 
     // ── Map SortOrder → topo Sorting ────────────────────────────────────────
@@ -131,22 +173,75 @@ pub fn walk_commits(
     let walk = builder.build()?;
 
     // ── Collect with optional limit ─────────────────────────────────────────
+    //
+    // The walk borrows `repo.objects`; keep the gix OIDs in a parallel Vec so we
+    // can re-fetch each object for metadata *after* the walk is dropped (the
+    // metadata pass below needs `&repo`, which conflicts with the walk borrow).
 
     let limit = opts.limit.unwrap_or(usize::MAX);
-    let mut out: Vec<CommitIn> = Vec::new();
+    let mut gix_oids: Vec<gix::ObjectId> = Vec::new();
+    let mut commit_ins: Vec<CommitIn> = Vec::new();
 
     for item in walk {
         let info = item?;
-        out.push(CommitIn {
+        gix_oids.push(info.id);
+        commit_ins.push(CommitIn {
             oid: oid_to_fixed20(&info.id),
             parents: info.parent_ids.iter().map(oid_to_fixed20).collect(),
         });
-        if out.len() >= limit {
+        if commit_ins.len() >= limit {
             break;
         }
     }
+    // `walk` dropped here — the `repo.objects` borrow is released.
 
-    Ok(out)
+    // ── Metadata second pass ────────────────────────────────────────────────
+
+    let mut metas: Vec<CommitMeta> = Vec::with_capacity(commit_ins.len());
+    for (i, gix_oid) in gix_oids.iter().enumerate() {
+        let obj = repo.find_object(*gix_oid)?;
+        let commit = obj.try_into_commit()?;
+        let data = commit.decode()?;
+
+        let author = data.author().name.to_str_lossy().into_owned();
+        let commit_time = data.committer().time.seconds;
+        let subject = data
+            .message
+            .split(|&b| b == b'\n')
+            .next()
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .unwrap_or_default();
+
+        let oid = commit_ins[i].oid;
+        let refs = ref_map.get(&oid).cloned().unwrap_or_default();
+
+        metas.push(CommitMeta {
+            oid,
+            subject,
+            author,
+            commit_time,
+            refs,
+        });
+    }
+
+    Ok((commit_ins, metas))
+}
+
+/// Classify a full ref name (e.g. `refs/heads/main`) into its [`RefKind`] and
+/// display name. Returns `None` for non-UTF-8 ref names (skipped).
+fn classify_ref(full_name: &BStr) -> Option<(RefKind, String)> {
+    let s = full_name.to_str().ok()?;
+    if s == "refs/stash" {
+        Some((RefKind::Stash, "stash".to_string()))
+    } else if let Some(n) = s.strip_prefix("refs/heads/") {
+        Some((RefKind::LocalBranch, n.to_string()))
+    } else if let Some(n) = s.strip_prefix("refs/remotes/") {
+        Some((RefKind::RemoteBranch, n.to_string()))
+    } else if let Some(n) = s.strip_prefix("refs/tags/") {
+        Some((RefKind::Tag, n.to_string()))
+    } else {
+        Some((RefKind::LocalBranch, s.to_string()))
+    }
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
