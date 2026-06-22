@@ -66,7 +66,6 @@ const F: [u8; 20] = {
 /// |   4 |   B    |  0   |  c0   | Straight 0→0 c0                          |
 /// |   5 |   A    |  0   |  c0   | (none — root, lane terminated)            |
 #[test]
-#[ignore = "pending layout engine implementation (M1) — see docs/specs/layout-spec.md §9"]
 fn golden_spec_section_9() {
     let commits = vec![
         CommitIn {
@@ -210,7 +209,6 @@ fn golden_spec_section_9() {
 /// Verify append-only stability (spec invariant 5):
 /// `layout(commits[..N])` rows 0..N == `layout(commits[..N+k])` rows 0..N
 #[test]
-#[ignore = "pending layout engine implementation (M1)"]
 fn invariant_append_only_stability() {
     let commits = vec![
         CommitIn {
@@ -252,7 +250,6 @@ fn invariant_append_only_stability() {
 
 /// Verify boundary-state continuation produces the same result as one-shot layout.
 #[test]
-#[ignore = "pending layout engine implementation (M1)"]
 fn invariant_boundary_continuation() {
     let commits = vec![
         CommitIn {

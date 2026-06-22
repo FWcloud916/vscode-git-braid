@@ -101,71 +101,116 @@ SegKind 語意：
 5. **Append-only 穩定性（關鍵）**：以序列前 N 筆算出的前 N 個 `RowLayout`，必須與「前 N+k 筆算出的前 N 個」**完全相同**。因為演算法單向 top-down、不回溯；新增只會在底部邊界延續，不改動上方。這是虛擬化與增量載入正確性的基礎。
 6. **第一 parent 直行**：commit 的 lane 延續給其第一 parent（首親鏈在同一欄垂直向下），除非該 commit 為 root。
 
+> **M1 flag 限制**：`IS_MERGE`（parent 數 ≥ 2）與 `IS_ROOT`（parent 數 = 0）是純函式，僅依 commit 本身，保證 append-stable。`PARENT_OFFSCREEN` 與 `IS_TIP` 依視窗成員資格，會破壞不變式 5，**延後到後續 milestone 的裝飾層處理**。
+
 ---
 
 ## 6. 核心演算法（單趟）
 
 狀態：
 ```
-lanes:  Vec<Option<LaneEntry>>     // index = lane，None = 空欄
-LaneEntry { waiting_for: Oid, color: ColorId }
-
-waiting_index: HashMap<Oid, SmallVec<[u16; 2]>>   // oid → 等待它的 lane 們（O(1) incoming 查詢）
-next_color: u32                    // 顏色配發計數器
-pending_mergeouts: SmallVec<...>   // 上一 row 產生、待併入其下方 gap 的 merge-out 線段
+lanes:        Vec<Option<LaneEntry>>                  // index = lane，None = 空欄
+LaneEntry   { waiting_for: Oid, color: ColorId }
+waiting_index: HashMap<Oid, SmallVec<[u16; 2]>>      // oid → 等待它的 lane（O(1) 查詢）
+next_color:   u32                                     // 顏色配發計數器
 ```
 
-主迴圈（對每個 commit C，row index = i）：
+> 注意：舊版偽碼包含 `pending_mergeouts` 緩衝（等下一列再確定）。**實作採 eager 產生（§7），
+> 不需要 pending 緩衝**，請以本節取代舊版。
+
+主迴圈（對每個 commit C）：
 
 ```
-1. incoming = waiting_index.get(C.oid)            // 等待 C 的所有 lane
+1. incoming = waiting_index.get(C.oid)   // 所有等待 C 的 lane
+
 2. 決定 commit_lane 與 color：
      if incoming 非空:
-         commit_lane = min(incoming)               // 最左收斂
+         commit_lane = min(incoming)      // 最左收斂
          color       = lanes[commit_lane].color
-     else:                                          // tip
+     else:                               // tip：視窗內無子節點指向 C
          commit_lane = 最左空欄（無則 push）
-         color       = palette_alloc()              // 見 §8
-3. 產生本 row 下方 gap 的 segments（見 §7 線段產生）。
-4. 處理 parents：
-     設 P = C.parents
-     if P 為空: lanes[commit_lane] = None           // root，lane 終止
+         color       = palette_alloc()   // 見 §8
+
+3. flags：IS_MERGE（parent ≥ 2）、IS_ROOT（parent = 0）、否則 empty
+   （PARENT_OFFSCREEN / IS_TIP 依視窗成員資格，延後到裝飾層）
+
+4. waiting_index.remove(C.oid)           // C 已解析，清除所有指向它的索引
+
+5. 終止非 commit_lane 的 incoming：
+     for j in incoming where j != commit_lane:
+         sc_segs.push( ConvergeIn(j → commit_lane, color=lanes[j].color) )
+         lanes[j] = None
+
+6. 處理 parents：
+     if P 為空（root）:
+         lanes[commit_lane] = None        // lane 終止，無段
+
      else:
-         // 第一 parent：commit_lane 延續
-         lanes[commit_lane] = LaneEntry{ P[0], color }
-         更新 waiting_index：移除舊的 C 條目，加入 P[0]→commit_lane
-         // 其餘 parent：合併去重，否則開新 lane
+         // 第一 parent P0——eager convergence 檢查
+         if 已有 index < commit_lane 的 lane 等待 P0:
+             target = 該最小 lane
+             sc_segs.push( ConvergeIn(commit_lane → target, color) )
+             lanes[commit_lane] = None    // commit_lane 折疊入更低 lane，即時產生
+         else:
+             // 第一 parent 直行（不變式 6）
+             lanes[commit_lane] = LaneEntry{ P0, color }
+             waiting_index 加入 P0→commit_lane
+
+         // 其餘 parent Pk（k ≥ 1）：MergeOut 對角線
          for Pk in P[1..]:
              if 已有 lane 等待 Pk:
-                 target = 該 lane
-                 記錄 MergeOut(commit_lane → target, color=該 lane.color) 到 pending_mergeouts
+                 ex = 最小等待 Pk 的 lane
+                 merge_out_segs.push( MergeOut(commit_lane → ex, color=lanes[ex].color) )
              else:
                  new_lane = 最左空欄（無則 push）
                  c = palette_alloc()
                  lanes[new_lane] = LaneEntry{ Pk, c }
                  waiting_index 加入 Pk→new_lane
-                 記錄 MergeOut(commit_lane → new_lane, color=c) 到 pending_mergeouts
-5. 收尾：把 incoming 中非 commit_lane 的 lane 標記終止（converge 已於步驟 3 產生其 ConvergeIn），並從 lanes / waiting_index 清除。
-6. 輸出 RowLayout{ C.oid, commit_lane, color, segments, flags }。
+                 merge_out_segs.push( MergeOut(commit_lane → new_lane, color=c) )
+
+7. Straight for 旁路 lane：
+     for j in lanes（已含步驟 5/6 的最終狀態）:
+         if lanes[j].is_some() 且 j 不在 merge_out_segs 的 to_lane:
+             straight_segs.push( Straight(j→j, lanes[j].color) )
+
+8. 組合 segments（見 §7 排序規則）並輸出 RowLayout。
 ```
 
-迴圈結束後，`next_boundary` = 當前 `lanes` / `waiting_index` / `next_color` 的快照（見 §11）。
+迴圈結束後，`next_boundary` = 當前 `lanes` / `next_color` 的快照（`waiting_index` 可由 `lanes` 重建，不序列化）。
 
 ---
 
-## 7. 線段產生（一個 gap 的組成）
+## 7. 線段產生（Eager 模型）
 
-一個 `gap(i-1, i)` 的線段在「處理 row i（底列）」時最終確定，由兩部分組成：
+`RowLayout[i].segments` 描述 row i **下方** gap（gap(i, i+1)）的所有線段。
+線段在**處理 row i 時即時（eagerly）確定**，不需要等到 row i+1——這是保證不變式 5 成立的關鍵。
 
-A. **上列遺留的 merge-out**：`pending_mergeouts`（row i-1 產生）併入。  
-B. **本列計算的 straight / converge-in**：對處理 row i 之前的每條 active lane `j`：
-   - 若 `j` ∈ incoming 且 `j == commit_lane`：該線進入節點 → `Straight(j→j)`，以 lane 色。
-   - 若 `j` ∈ incoming 且 `j != commit_lane`：終止 → `ConvergeIn(j → commit_lane)`，以 **lane j 自身的色**（顯示這條線從哪來）。
-   - 若 `j` ∉ incoming：旁路通過 → `Straight(j→j)`，以 lane 色。
+### 7.1 Eager convergence（取代舊版「一列回看」）
 
-實作上保留一個單列回看的 `pending_mergeouts` 緩衝即可，O(1) lookback，維持 append-only。
+舊版 §7 描述「ConvergeIn 落在 parent 的 row」（即 gap(i-1,i) 由 row i 確定）。
+**實作採 eager 模型**，ConvergeIn 落在**收斂發生的那一列（commit C 的列）**：
 
-> 色彩約定：收斂時**存活 lane（最左）保留自己的色**，節點色 = 該色；終止 lane 的 ConvergeIn 段用終止 lane 的色。
+- **multi-child 收斂**（§6 步驟 5）：非最左 incoming lane j 在 C 列即收斂。
+  → `ConvergeIn(j → commit_lane, color = lanes[j]的色)` 屬於 row(C) 的 gap-below。
+- **eager first-parent 收斂**（§6 步驟 6）：若 commit_lane 的 first-parent P0 已有更低 lane
+  等待，commit_lane 在 C 列即折疊。
+  → `ConvergeIn(commit_lane → target, color = commit_lane的色)` 屬於 row(C) 的 gap-below。
+
+此設計使 row(C) 的輸出在產生時即完整，無需向後回溯——直接滿足不變式 5。
+
+### 7.2 段排序（golden §9 鎖定，屬決定論的一部分）
+
+每個 row 的 segments 最終按下列順序組裝：
+
+**Part A**（ConvergeIn + Straight），按 `from_lane` 升序排列：
+- ConvergeIn：來自步驟 5（多子收斂）與步驟 6 的 eager convergence。
+- Straight：commit_lane（若繼續）及所有旁路 lane（步驟 7）。
+
+**Part B**（MergeOut），按建立順序 append 在 Part A 之後：
+- 每個 extra parent 產生一個 MergeOut（步驟 6）。
+- 新建立的 merge lane 不出現在 Straight 清單中（由 MergeOut 描述其誕生）。
+
+> 色彩約定：存活 lane 保留自身色（節點色 = 該色）；終止 lane 的 ConvergeIn 以**終止 lane 自身的色**繪製。
 
 ---
 
