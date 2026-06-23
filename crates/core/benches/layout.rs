@@ -7,9 +7,10 @@
 //! - First paint < 500ms for 10k commits
 //! - Batch latency < 100ms
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use git_braid_core::model::CommitIn;
 use smallvec::smallvec;
+use std::hint::black_box;
 
 /// Build a simple linear chain of N commits (no branches).
 fn linear_chain(n: usize) -> Vec<CommitIn> {

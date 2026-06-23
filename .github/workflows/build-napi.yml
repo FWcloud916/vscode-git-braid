@@ -47,7 +47,7 @@ jobs:
               pnpm --filter @git-braid/native exec napi build --platform --release --dts _napi.d.ts.tmp --target x86_64-pc-windows-msvc
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -59,13 +59,13 @@ jobs:
         with:
           key: ${{ matrix.settings.target }}
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "pnpm"
 
       - name: Install dependencies
@@ -76,7 +76,7 @@ jobs:
         shell: bash
 
       - name: Upload prebuild
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: git-braid-native-${{ matrix.settings.target }}
           path: bindings/napi/*.node

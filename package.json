@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "publisher": "FWCloud916",
   "license": "MIT",
+  "packageManager": "pnpm@11.8.0",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -90,7 +91,13 @@
         },
         "gitBraid.ai.provider": {
           "type": "string",
-          "enum": ["vscode-lm", "anthropic", "openai", "gemini", "groq"],
+          "enum": [
+            "vscode-lm",
+            "anthropic",
+            "openai",
+            "gemini",
+            "groq"
+          ],
           "default": "vscode-lm",
           "enumDescriptions": [
             "VS Code Language Model API — uses your existing AI extension (e.g. GitHub Copilot). No API key required.",
@@ -159,15 +166,15 @@
     "@git-braid/native": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^24.0.0",
     "@types/vscode": "^1.93.0",
-    "@typescript-eslint/eslint-plugin": "^8.0.0",
-    "@typescript-eslint/parser": "^8.0.0",
-    "@vscode/vsce": "^3.0.0",
-    "esbuild": "^0.24.0",
-    "eslint": "^9.0.0",
-    "prettier": "^3.0.0",
-    "typescript": "^5.6.0",
-    "vitest": "^2.0.0"
+    "@typescript-eslint/eslint-plugin": "^8.61.1",
+    "@typescript-eslint/parser": "^8.61.1",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.0",
+    "eslint": "^9.39.4",
+    "prettier": "^3.8.4",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
   }
 }

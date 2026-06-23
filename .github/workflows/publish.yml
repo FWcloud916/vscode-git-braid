@@ -37,15 +37,15 @@ jobs:
             rustTriple: x86_64-pc-windows-msvc
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "pnpm"
 
       - name: Install dependencies
@@ -53,7 +53,7 @@ jobs:
 
       # Download the prebuilt .node for this platform.
       - name: Download native prebuild
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: git-braid-native-${{ matrix.platform.rustTriple }}
           path: bindings/napi/
@@ -83,7 +83,7 @@ jobs:
             -o git-braid-${{ matrix.platform.vsceTarget }}.vsix
 
       - name: Upload .vsix artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vsix-${{ matrix.platform.vsceTarget }}
           path: git-braid-${{ matrix.platform.vsceTarget }}.vsix
@@ -98,15 +98,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "pnpm"
 
       - name: Install dependencies
@@ -114,7 +114,7 @@ jobs:
 
       # Download all 4 platform .vsix files into the current directory.
       - name: Download all .vsix artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: vsix-*
           merge-multiple: true
