@@ -175,6 +175,7 @@
     "eslint": "^10.0.0",
     "prettier": "^3.8.4",
     "typescript": "^6.0.0",
-    "vitest": "^2.1.9"
+    "vite": "^6.0.0",
+    "vitest": "^4.0.0"
   }
 }
