@@ -25,8 +25,8 @@ bitflags = "2"
 bytemuck = { version = "1", features = ["derive"] }
 
 # napi-rs (plan §3.4 — native addon, host-side)
-napi        = { version = "2", default-features = false, features = ["napi4"] }
-napi-derive = "2"
+napi        = { version = "3", default-features = false, features = ["napi4"] }
+napi-derive = "3"
 
 # Testing / benchmarks
 criterion = { version = "0.8", features = ["html_reports"] }
