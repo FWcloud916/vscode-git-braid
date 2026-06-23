@@ -20,9 +20,12 @@ export declare function discoverRepo(path: string): string | null
  *
  * # Arguments
  *
- * * `repo_path` — absolute path to the git worktree or `.git` directory.
- * * `offset`    — number of commits already loaded (for incremental paging).
- * * `limit`     — maximum number of commits to return in this batch.
+ * * `repo_path`       — absolute path to the git worktree or `.git` directory.
+ * * `offset`          — number of commits already loaded (for incremental paging).
+ * * `limit`           — maximum number of commits to return in this batch.
+ * * `exclude_remotes` — when `true`, remote branches are excluded from the graph.
+ * * `branch`          — when `Some`, only walk from the named branch (+ its
+ *   remote-tracking branches when `exclude_remotes` is `false`) and HEAD.
  *
  * # Returns
  *
@@ -37,7 +40,7 @@ export declare function discoverRepo(path: string): string | null
  * TODO(M2): accept a serialised `BoundaryState` token so the host can resume layout
  * from the previous batch boundary instead of recomputing from the repository root.
  */
-export declare function getGraphBatch(repoPath: string, offset: number, limit: number): Buffer
+export declare function getGraphBatch(repoPath: string, offset: number, limit: number, excludeRemotes: boolean, branch?: string | undefined | null): Buffer
 
 /**
  * A single file-level change introduced by a commit (vs its first parent).
@@ -161,6 +164,31 @@ export interface RefInfo {
  * The read path is gitoxide-only — no `git` subprocess is spawned.
  */
 export declare function listRefs(repoPath: string): Array<RefInfo>
+
+/**
+ * A branch entry for the graph toolbar's branch-switcher dropdown.
+ *
+ * `kind`: 0 = LocalBranch, 1 = RemoteBranch.
+ * napi-rs maps `is_current` → `isCurrent` in TypeScript.
+ */
+export interface BranchInfo {
+  /** Display name (e.g. `"main"`, `"origin/main"`). */
+  name: string
+  /** RefKind discriminant: 0 = LocalBranch, 1 = RemoteBranch. */
+  kind: number
+  /** `true` when this is the currently checked-out local branch. */
+  isCurrent: boolean
+}
+
+/**
+ * List all local and remote branches, sorted local-first then alphabetically.
+ *
+ * Tags, stash, and HEAD are excluded. The `isCurrent` flag identifies the
+ * active local branch (always `false` for remotes and in detached HEAD).
+ *
+ * The read path is gitoxide-only — no `git` subprocess is spawned.
+ */
+export declare function listBranches(repoPath: string): Array<BranchInfo>
 
 /**
  * One commit in a `from..to` range walk, for release-notes generation.

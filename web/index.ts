@@ -13,7 +13,7 @@
  *   `{ type: "batch", payload: ArrayBuffer }` — BRAI v2 binary batch
  *   `{ type: "commitDetail", detail: CommitDetailPayload }` — single commit detail
  *   `{ type: "findResults", query: string, matches: FindMatchPayload[] }` — search results
- *   `{ type: "config", dateFormat: string, palette: string[] }` — display settings
+ *   `{ type: "config", dateFormat, palette, branches, currentBranch }` — display settings
  *   `{ type: "reload" }` — clear rows and re-request from offset 0 (after write op)
  *   `{ type: "error", message: string }`
  *
@@ -24,12 +24,16 @@
  *   `{ type: "openDiff", filePath, oldOid, newOid, status }` — file row clicked
  *   `{ type: "action", op: GitActionOp, oid: string, refs: ActionRef[] }` — write op
  *   `{ type: "copy", field: "hash"|"shortHash"|"subject"|"message", oid: string }` — clipboard copy
+ *   `{ type: "setFilter", includeRemotes: boolean, branch: string | null }` — graph filter
+ *   `{ type: "fetch" }` — run git fetch --all --prune
+ *   `{ type: "refresh" }` — reload graph
  */
 
 import { CanvasRenderer, PAD_X, COL_DATE_WIDTH, COL_AUTHOR_WIDTH, COL_COMMIT_WIDTH } from "./renderer/canvas";
 import { decodeBatch, REF_KIND_LOCAL_BRANCH, REF_KIND_TAG, REF_KIND_STASH, type DecodedRef } from "./renderer/decode";
 import { formatRelative } from "./format";
 import { showContextMenu, type MenuItem } from "./ui/contextMenu";
+import { createBranchDropdown, type BranchDropdownItem } from "./ui/branchDropdown";
 
 // ── VS Code API ────────────────────────────────────────────────────────────────
 
@@ -460,6 +464,99 @@ function init(): void {
   graphWrapper.style.cssText = "flex:1; min-width:0; height:100%; position:relative; overflow:hidden; display:flex; flex-direction:column;";
   app.appendChild(graphWrapper);
 
+  // ── Toolbar state ─────────────────────────────────────────────────────────
+  // Restored from VS Code webview state so the filter survives panel hide/show.
+  interface ToolbarState { includeRemotes: boolean; branch: string | null }
+  const savedState = vscode?.getState() as ToolbarState | undefined;
+  let toolbarState: ToolbarState = savedState ?? { includeRemotes: true, branch: null };
+
+  function saveToolbarState(): void {
+    vscode?.setState(toolbarState);
+  }
+
+  // ── Toolbar row ───────────────────────────────────────────────────────────
+  const toolbarRow = document.createElement("div");
+  toolbarRow.style.cssText = [
+    "width:100%; height:28px; flex-shrink:0;",
+    "display:flex; align-items:center; gap:6px;",
+    "background:var(--vscode-sideBar-background,#252526);",
+    "border-bottom:1px solid var(--vscode-panel-border,#333);",
+    "box-sizing:border-box; padding:0 8px;",
+    "font-family:var(--vscode-font-family,monospace); font-size:11px;",
+    "color:var(--vscode-foreground,#ccc);",
+    "user-select:none;",
+  ].join(" ");
+  graphWrapper.appendChild(toolbarRow);
+
+  // Branch switcher — custom searchable dropdown.
+  const branchDropdown = createBranchDropdown({
+    initial: toolbarState.branch,
+    onSelect: (value) => {
+      toolbarState.branch = value;
+      saveToolbarState();
+      postToHost({ type: "setFilter", includeRemotes: toolbarState.includeRemotes, branch: value });
+    },
+  });
+  toolbarRow.appendChild(branchDropdown.el);
+
+  // "Show remotes" toggle button.
+  const remotesBtn = document.createElement("button");
+  function updateRemotesBtn(): void {
+    remotesBtn.textContent = toolbarState.includeRemotes ? "⇄ Remotes" : "⇄ Local only";
+    remotesBtn.title = toolbarState.includeRemotes ? "Click to hide remote branches" : "Click to show remote branches";
+    remotesBtn.style.opacity = toolbarState.includeRemotes ? "1" : "0.55";
+  }
+  remotesBtn.style.cssText = [
+    "background:none; border:1px solid var(--vscode-panel-border,#555);",
+    "border-radius:3px; padding:1px 6px; cursor:pointer;",
+    "color:var(--vscode-foreground,#ccc); font-size:11px; font-family:inherit;",
+    "white-space:nowrap;",
+  ].join(" ");
+  updateRemotesBtn();
+  remotesBtn.addEventListener("click", () => {
+    toolbarState.includeRemotes = !toolbarState.includeRemotes;
+    updateRemotesBtn();
+    saveToolbarState();
+    postToHost({ type: "setFilter", includeRemotes: toolbarState.includeRemotes, branch: toolbarState.branch });
+  });
+  toolbarRow.appendChild(remotesBtn);
+
+  // Spacer.
+  const tbSpacer = document.createElement("span");
+  tbSpacer.style.flex = "1";
+  toolbarRow.appendChild(tbSpacer);
+
+  // Fetch button.
+  const fetchBtn = document.createElement("button");
+  fetchBtn.textContent = "⬇ Fetch";
+  fetchBtn.title = "Run git fetch --all --prune";
+  fetchBtn.style.cssText = [
+    "background:none; border:1px solid var(--vscode-panel-border,#555);",
+    "border-radius:3px; padding:1px 6px; cursor:pointer;",
+    "color:var(--vscode-foreground,#ccc); font-size:11px; font-family:inherit;",
+    "white-space:nowrap;",
+  ].join(" ");
+  fetchBtn.addEventListener("click", () => {
+    fetchBtn.disabled = true;
+    fetchBtn.textContent = "⬇ Fetching…";
+    // Re-enable after a short delay in case the host doesn't send reload fast enough.
+    setTimeout(() => { fetchBtn.disabled = false; fetchBtn.textContent = "⬇ Fetch"; }, 8000);
+    postToHost({ type: "fetch" });
+  });
+  toolbarRow.appendChild(fetchBtn);
+
+  // Refresh button.
+  const refreshBtn = document.createElement("button");
+  refreshBtn.textContent = "↺";
+  refreshBtn.title = "Refresh graph";
+  refreshBtn.style.cssText = [
+    "background:none; border:1px solid var(--vscode-panel-border,#555);",
+    "border-radius:3px; padding:1px 6px; cursor:pointer;",
+    "color:var(--vscode-foreground,#ccc); font-size:11px; font-family:inherit;",
+  ].join(" ");
+  refreshBtn.addEventListener("click", () => { postToHost({ type: "refresh" }); });
+  toolbarRow.appendChild(refreshBtn);
+
   // ── Column header bar ──────────────────────────────────────────────────────
   // Heights and widths mirror the canvas column constants so the labels align
   // pixel-for-pixel with the data drawn in CanvasRenderer._paint().
@@ -721,6 +818,11 @@ function init(): void {
         if (palette) {
           renderer.setPalette(palette);
         }
+        const branches = message["branches"] as BranchDropdownItem[] | undefined;
+        if (branches) {
+          branchDropdown.setItems(branches);
+          branchDropdown.setSelected(toolbarState.branch);
+        }
         break;
       }
 
@@ -752,15 +854,19 @@ function init(): void {
       }
 
       case "reload": {
-        // A write operation succeeded — reset the graph and reload from scratch.
-        // Re-using the existing batch-request flow means no new protocol needed
-        // on the native side (getGraphBatch already re-walks from root every call).
+        // A write operation (or filter change / auto-refresh) succeeded — reset
+        // the graph and reload from scratch.  Re-using the existing batch-request
+        // flow means no new protocol needed on the native side (getGraphBatch
+        // already re-walks from root every call).
         loadedCount = 0;
         inFlight = true;
         reachedEnd = false;
         pendingReveal = null;
         renderer.reset();
         clearFind();
+        // Re-enable fetch button in case it was spinning.
+        fetchBtn.disabled = false;
+        fetchBtn.textContent = "⬇ Fetch";
         postToHost({ type: "requestBatch", offset: 0, limit: PAGE_SIZE });
         break;
       }
@@ -774,6 +880,12 @@ function init(): void {
 
   // Signal to the host that we're ready to receive data.
   postToHost({ type: "ready" });
+
+  // Synchronise any persisted filter state with the host immediately so the
+  // first batch is fetched with the correct filter applied.
+  if (toolbarState.branch !== null || !toolbarState.includeRemotes) {
+    postToHost({ type: "setFilter", includeRemotes: toolbarState.includeRemotes, branch: toolbarState.branch });
+  }
 }
 
 if (document.readyState === "loading") {

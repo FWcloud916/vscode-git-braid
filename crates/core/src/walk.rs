@@ -25,7 +25,9 @@ use std::collections::{HashMap, HashSet};
 
 use gix::bstr::{BStr, ByteSlice};
 
-use crate::model::{CommitIn, CommitMeta, Oid, RangeCommit, RefInfo, RefKind, RefLabel};
+use crate::model::{
+    BranchInfo, CommitIn, CommitMeta, Oid, RangeCommit, RefInfo, RefKind, RefLabel,
+};
 
 /// Which ordering policy to apply to the commit walk.
 #[derive(Debug, Clone, Copy, Default)]
@@ -45,6 +47,14 @@ pub struct WalkOptions {
     pub limit: Option<usize>,
     /// If `true`, only follow first-parent edges (hides merge branches).
     pub first_parent_only: bool,
+    /// When `true`, remote branches (`refs/remotes/*`) are excluded from graph
+    /// tips and from per-commit ref labels. Default: `false` (include all).
+    pub exclude_remotes: bool,
+    /// When `Some`, only the named local branch (and its remote-tracking
+    /// counterparts when `exclude_remotes` is `false`) are used as walk tips,
+    /// in addition to HEAD. Tags are **not** used as extra tips when this is
+    /// set. `None` = all refs (current behaviour).
+    pub branch_filter: Option<String>,
 }
 
 /// Walk the commit graph of a git repository and return a topologically-ordered
@@ -91,6 +101,10 @@ pub fn walk_commits(
             let Some((kind, name)) = classify_ref(r.name().as_bstr()) else {
                 continue;
             };
+            // Exclude remote ref labels when requested.
+            if opts.exclude_remotes && kind == RefKind::RemoteBranch {
+                continue;
+            }
             let Ok(commit_id) = r.peel_to_commit() else {
                 continue;
             };
@@ -128,6 +142,7 @@ pub fn walk_commits(
 
     // Iterate all refs (branches, tags, remotes, etc.).
     // Skip broken refs; skip refs that don't peel to a commit (e.g. tree tags).
+    // Apply `exclude_remotes` and `branch_filter` from `opts`.
     {
         let refs_platform = repo.references()?;
         for r in refs_platform.all()? {
@@ -135,6 +150,44 @@ pub fn walk_commits(
                 Ok(r) => r,
                 Err(_) => continue,
             };
+            let Some((kind, name)) = classify_ref(r.name().as_bstr()) else {
+                continue;
+            };
+
+            // Decide whether this ref should be a walk tip.
+            let use_as_tip = match kind {
+                RefKind::RemoteBranch => {
+                    if opts.exclude_remotes {
+                        false
+                    } else if let Some(ref f) = opts.branch_filter {
+                        // Accept remote branches that track the filtered branch:
+                        // e.g. "origin/main" when filter is "main".
+                        name == *f || name.ends_with(&format!("/{f}"))
+                    } else {
+                        true
+                    }
+                }
+                RefKind::LocalBranch => {
+                    if let Some(ref f) = opts.branch_filter {
+                        name == *f
+                    } else {
+                        true
+                    }
+                }
+                RefKind::Tag => {
+                    // When a branch filter is active, skip tags as tips — they
+                    // would pull in unrelated history.  Tags still appear as
+                    // labels via `ref_map` for commits already reachable from
+                    // the filtered branches.
+                    opts.branch_filter.is_none()
+                }
+                // Stash / HEAD handled separately above.
+                RefKind::Stash | RefKind::Head => true,
+            };
+            if !use_as_tip {
+                continue;
+            }
+
             let commit_id = match r.peel_to_commit() {
                 Ok(c) => c.id,
                 Err(_) => continue,
@@ -351,6 +404,61 @@ pub fn list_refs(repo_path: &std::path::Path) -> Result<Vec<RefInfo>, Box<dyn st
             RefKind::Tag => 1,
             _ => 2,
         };
+        ka.cmp(&kb).then_with(|| a.name.cmp(&b.name))
+    });
+
+    Ok(result)
+}
+
+// ── List branches (toolbar branch switcher) ──────────────────────────────────
+
+/// List all local and remote branches, sorted local-first then alphabetically.
+///
+/// Tags, stash, and HEAD are excluded.  The `is_current` flag is set on
+/// whichever local branch HEAD currently points at (always `false` in detached
+/// HEAD state and for remote branches).
+///
+/// This is a **read-path** operation — gitoxide only; no `git` subprocess.
+pub fn list_branches(
+    repo_path: &std::path::Path,
+) -> Result<Vec<BranchInfo>, Box<dyn std::error::Error>> {
+    let repo = gix::open(repo_path)?;
+
+    // Determine the name of the current branch (None when detached).
+    let head_branch: Option<String> = (|| -> Option<String> {
+        let head = repo.head().ok()?;
+        let referent = head.referent_name()?;
+        let s = referent.as_bstr().to_str().ok()?;
+        Some(s.strip_prefix("refs/heads/")?.to_string())
+    })();
+
+    let mut result: Vec<BranchInfo> = Vec::new();
+
+    let refs_platform = repo.references()?;
+    for r in refs_platform.all()? {
+        let r = match r {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let Some((kind, name)) = classify_ref(r.name().as_bstr()) else {
+            continue;
+        };
+        if !matches!(kind, RefKind::LocalBranch | RefKind::RemoteBranch) {
+            continue;
+        }
+        let is_current =
+            kind == RefKind::LocalBranch && head_branch.as_deref() == Some(name.as_str());
+        result.push(BranchInfo {
+            name,
+            kind,
+            is_current,
+        });
+    }
+
+    // Sort: local branches before remote branches, alphabetically within each group.
+    result.sort_by(|a, b| {
+        let ka: u8 = if a.kind == RefKind::LocalBranch { 0 } else { 1 };
+        let kb: u8 = if b.kind == RefKind::LocalBranch { 0 } else { 1 };
         ka.cmp(&kb).then_with(|| a.name.cmp(&b.name))
     });
 

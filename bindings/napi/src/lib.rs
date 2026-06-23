@@ -28,8 +28,8 @@ use git_braid_core::{
     serialize::encode_batch,
     walk::{
         discover_repo as core_discover_repo, find_commits as core_find_commits,
-        list_refs as core_list_refs, walk_commits, walk_range as core_walk_range, SortOrder,
-        WalkOptions,
+        list_branches as core_list_branches, list_refs as core_list_refs, walk_commits,
+        walk_range as core_walk_range, SortOrder, WalkOptions,
     },
 };
 use napi::bindgen_prelude::Buffer;
@@ -52,9 +52,12 @@ pub fn discover_repo(path: String) -> Option<String> {
 ///
 /// # Arguments
 ///
-/// * `repo_path` — absolute path to the git worktree or `.git` directory.
-/// * `offset`    — number of commits already loaded (for incremental paging).
-/// * `limit`     — maximum number of commits to return in this batch.
+/// * `repo_path`       — absolute path to the git worktree or `.git` directory.
+/// * `offset`          — number of commits already loaded (for incremental paging).
+/// * `limit`           — maximum number of commits to return in this batch.
+/// * `exclude_remotes` — when `true`, remote branches are excluded from the graph.
+/// * `branch`          — when `Some`, only walk from the named branch (+ its
+///   remote-tracking branches when `exclude_remotes` is `false`) and HEAD.
 ///
 /// # Returns
 ///
@@ -69,7 +72,13 @@ pub fn discover_repo(path: String) -> Option<String> {
 /// TODO(M2): accept a serialised `BoundaryState` token so the host can resume layout
 /// from the previous batch boundary instead of recomputing from the repository root.
 #[napi]
-pub fn get_graph_batch(repo_path: String, offset: u32, limit: u32) -> napi::Result<Buffer> {
+pub fn get_graph_batch(
+    repo_path: String,
+    offset: u32,
+    limit: u32,
+    exclude_remotes: bool,
+    branch: Option<String>,
+) -> napi::Result<Buffer> {
     let path = std::path::Path::new(&repo_path);
 
     // Walk enough commits to cover the requested window.
@@ -85,6 +94,8 @@ pub fn get_graph_batch(repo_path: String, offset: u32, limit: u32) -> napi::Resu
         } else {
             None
         },
+        exclude_remotes,
+        branch_filter: branch,
         ..Default::default()
     };
 
@@ -352,11 +363,12 @@ pub fn find_commits(
 ) -> napi::Result<Vec<FindMatch>> {
     let path = std::path::Path::new(&repo_path);
 
-    // MUST match the WalkOptions used in get_graph_batch (lines 61-72).
+    // MUST match the WalkOptions used in get_graph_batch (order + no limit).
+    // Always walk the full unfiltered history for search so no commits are missed.
     let opts = WalkOptions {
         order: SortOrder::Date,
         limit: None,
-        first_parent_only: false,
+        ..Default::default()
     };
 
     let cap = if max_results == 0 {
@@ -424,6 +436,43 @@ pub fn list_refs(repo_path: String) -> napi::Result<Vec<RefInfo>> {
                 let _ = write!(s, "{b:02x}");
                 s
             }),
+        })
+        .collect())
+}
+
+// ── Branch switcher (toolbar) ─────────────────────────────────────────────────
+
+/// A branch entry for the graph toolbar's branch-switcher dropdown.
+///
+/// `kind`: 0 = LocalBranch, 1 = RemoteBranch.
+/// napi-rs maps `is_current` → `isCurrent` in TypeScript.
+#[napi(object)]
+pub struct BranchInfo {
+    /// Display name (e.g. `"main"`, `"origin/main"`).
+    pub name: String,
+    /// RefKind discriminant: 0 = LocalBranch, 1 = RemoteBranch.
+    pub kind: u8,
+    /// `true` when this is the currently checked-out local branch.
+    pub is_current: bool,
+}
+
+/// List all local and remote branches, sorted local-first then alphabetically.
+///
+/// Tags, stash, and HEAD are excluded. The `isCurrent` flag identifies the
+/// active local branch (always `false` for remotes and in detached HEAD).
+///
+/// The read path is gitoxide-only — no `git` subprocess is spawned.
+#[napi]
+pub fn list_branches(repo_path: String) -> napi::Result<Vec<BranchInfo>> {
+    let path = std::path::Path::new(&repo_path);
+    let branches = core_list_branches(path)
+        .map_err(|e| napi::Error::from_reason(format!("list_branches: {e}")))?;
+    Ok(branches
+        .into_iter()
+        .map(|b| BranchInfo {
+            name: b.name,
+            kind: b.kind as u8,
+            is_current: b.is_current,
         })
         .collect())
 }

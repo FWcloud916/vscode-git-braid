@@ -70,7 +70,7 @@ fn date_opts() -> WalkOptions {
     WalkOptions {
         order: SortOrder::Date,
         limit: None,
-        first_parent_only: false,
+        ..Default::default()
     }
 }
 

@@ -149,6 +149,22 @@ pub struct RefInfo {
     pub oid: Oid,
 }
 
+/// A branch entry returned by [`crate::walk::list_branches`], used by the
+/// graph toolbar's branch switcher dropdown.
+///
+/// Includes local branches and remote branches; stash, tags, and HEAD are
+/// excluded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchInfo {
+    /// Display name (e.g. `"main"`, `"origin/main"`).
+    pub name: String,
+    /// `RefKind::LocalBranch` (0) or `RefKind::RemoteBranch` (1).
+    pub kind: RefKind,
+    /// `true` if this is the currently checked-out local branch.
+    /// Always `false` for remote branches and in detached HEAD state.
+    pub is_current: bool,
+}
+
 /// One commit returned by [`crate::walk::walk_range`] for release-notes
 /// generation.
 ///

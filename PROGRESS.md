@@ -4,7 +4,27 @@
 
 ---
 
-## Current milestone: M6 — Marketplace publish (packaging ready)
+## Current milestone: Graph toolbar, ref rendering & branch dropdown
+
+**Goal:** Four UX improvements to the graph webview: (1) merge local+remote chips at the same commit into one chip with a remote mark; (2) small icons distinguishing tags from branches; (3) toolbar with branch switcher, remote toggle, fetch, and refresh; (4) auto-refresh on local git change. Plus a searchable, widened branch dropdown replacing the native `<select>`.
+
+**Status:** ✅ Done
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `web/renderer/canvas.ts` — `buildDisplayRefs` collapses local+remote chips; remote mark (filled dot); `drawRefIcon` (branch fork / tag pentagon) | ✅ | Pure helper, deterministic; kind constants from `decode.ts` |
+| `web/index.ts` — toolbar row (branch switcher, remote toggle, fetch, refresh); `ToolbarState` persisted via `getState/setState` | ✅ | No native/host rebuild needed for toolbar DOM |
+| `src/webviewBridge.ts` — `setFilter`/`fetch`/`refresh` message handlers; `_excludeRemotes` / `_branchFilter` state; `FileSystemWatcher` debounced auto-reload; `config.branches` payload | ✅ | Auto-reload debounce 300ms on HEAD/refs/packed-refs |
+| `src/gitActions.ts` — `fetch()` via `runGit(["fetch","--all","--prune"])` | ✅ | Follows read/write split (ADR §3.2); no gitoxide network ops |
+| `crates/core/src/walk.rs` — `WalkOptions` extended with `exclude_remotes` + `branch_filter`; `list_branches()` | ✅ | Tip collection + ref_map both respect filters; layout invariants preserved |
+| `crates/core/src/model.rs` — `BranchInfo` struct | ✅ | Returned by `list_branches`; kind + is_current |
+| `bindings/napi/src/lib.rs` — `get_graph_batch` extended params; `list_branches` napi fn | ✅ | `index.d.ts` hand-maintained (gen-dts env missing) |
+| `web/ui/branchDropdown.ts` (new) — searchable dropdown: wide trigger button, popup with filter input, scrollable branch list, `✓`/`★` glyphs, keyboard navigation | ✅ | Replaces native `<select>`; CSP-safe inline styles |
+| `web/index.ts` — wired `createBranchDropdown`; removed `<select>` + `populateBranchSelect` | ✅ | Same `setFilter` message path; state persisted unchanged |
+
+---
+
+## Previous milestone: M6 — Marketplace publish (packaging ready)
 
 **Goal:** Wire the native `.node` addon into the `.vsix` so an installed extension actually loads it. Deliver per-platform packaging, CI `publish.yml`, Marketplace metadata, and placeholder icon. The actual `vsce publish` + publisher registration + `VSCE_PAT` are the user's final step.
 
@@ -244,4 +264,4 @@ Git Graph + VS Code built-in, stop here.
 
 ---
 
-_Updated: 2026-06-23 · M6 complete — per-platform .vsix packaging: esbuild native-vendor plugin, vendor:native script, publish.yml CI workflow (4-platform matrix), placeholder icon, Marketplace metadata_
+_Updated: 2026-06-23 · Graph toolbar complete — merged ref chips, kind icons, branch/remote filter, fetch, auto-refresh, searchable branch dropdown_

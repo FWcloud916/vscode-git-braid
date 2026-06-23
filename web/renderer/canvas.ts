@@ -40,6 +40,9 @@ import {
   SEG_KIND_STRAIGHT,
   FLAG_IS_MERGE,
   REF_KIND_HEAD,
+  REF_KIND_LOCAL_BRANCH,
+  REF_KIND_REMOTE_BRANCH,
+  REF_KIND_TAG,
 } from "./decode";
 
 // Polyfill roundRect for environments that don't have it (e.g. older jsdom in
@@ -115,13 +118,190 @@ const PREFETCH_THRESHOLD = 50;
 /** Return the chip colour for a given RefKind (matches decode.ts REF_KIND_*). */
 function refChipColor(kind: number): string {
   switch (kind) {
-    case 3:  return "#E6D46A"; // HEAD — yellow
-    case 0:  return "#6AE699"; // LocalBranch — green
-    case 2:  return "#E6886A"; // Tag — orange
-    case 1:  return "#9F6AE6"; // RemoteBranch — purple
-    case 4:  return "#E66A9F"; // Stash — pink
-    default: return "#6A9FE6";
+    case REF_KIND_HEAD:          return "#E6D46A"; // HEAD — yellow
+    case REF_KIND_LOCAL_BRANCH:  return "#6AE699"; // LocalBranch — green
+    case REF_KIND_TAG:           return "#E6886A"; // Tag — orange
+    case REF_KIND_REMOTE_BRANCH: return "#9F6AE6"; // RemoteBranch — purple
+    case 4:                      return "#E66A9F"; // Stash — pink
+    default:                     return "#6A9FE6";
   }
+}
+
+// ── DisplayRef — merged chips for the canvas ──────────────────────────────────
+
+/**
+ * A display-level chip that may represent one or several raw `DecodedRef`s.
+ *
+ * A local branch `X` (kind=0) and its remote counterparts `<remote>/X`
+ * (kind=1) at the same commit are merged into a single chip with `remotes`
+ * populated.  HEAD (kind=3) is merged into the local branch chip when both
+ * point at the same commit.  Tags (kind=2) and stash (kind=4) are never merged.
+ */
+interface DisplayRef {
+  /** Label shown in the chip (local branch name, remote-only name, tag, etc.). */
+  label: string;
+  /** RefKind of this chip (0=LocalBranch, 1=RemoteBranch, 2=Tag, 3=HEAD, 4=Stash). */
+  kind: number;
+  /**
+   * Non-empty when a local branch chip has been merged with one or more
+   * remote-tracking branches.  Each entry is the remote name prefix
+   * (e.g. `"origin"`).
+   */
+  remotes: string[];
+}
+
+/**
+ * Collapse `DecodedRef[]` for one commit into display chips.
+ *
+ * Rules:
+ * - Local branch `X` and remote `<remote>/X` → single green chip `X` with a
+ *   remote mark listing each remote that tracks it.
+ * - Remote-only branch (no matching local) → its own purple chip.
+ * - HEAD merges into the local branch chip (or stays alone if detached).
+ * - Tags and stash are never merged.
+ * - Sort order in the output: LocalBranch, Tag, RemoteBranch, Stash.
+ *   (HEAD is embedded in the branch chip, not a separate chip.)
+ *
+ * This function is pure and deterministic — same input always gives same output.
+ */
+export function buildDisplayRefs(refs: DecodedRef[]): DisplayRef[] {
+  // Collect local branch names and remote branches.
+  const localBranchNames = new Set<string>(
+    refs.filter(r => r.kind === REF_KIND_LOCAL_BRANCH).map(r => r.name),
+  );
+
+  const result: DisplayRef[] = [];
+  // Track which remote refs have been absorbed into a local chip.
+  const absorbedRemotes = new Set<string>();
+
+  // ── Local branches (kind=0) ── merge HEAD and remote counterparts in.
+  for (const ref of refs) {
+    if (ref.kind !== REF_KIND_LOCAL_BRANCH) continue;
+
+    const remotes: string[] = [];
+    for (const r of refs) {
+      if (r.kind !== REF_KIND_REMOTE_BRANCH) continue;
+      // Does this remote branch track the local branch?
+      // e.g. "origin/main" tracks local "main" when name ends with "/main".
+      const slash = r.name.indexOf("/");
+      const remoteBranch = slash >= 0 ? r.name.slice(slash + 1) : r.name;
+      if (remoteBranch === ref.name) {
+        const remoteName = slash >= 0 ? r.name.slice(0, slash) : r.name;
+        remotes.push(remoteName);
+        absorbedRemotes.add(r.name);
+      }
+    }
+
+    result.push({ label: ref.name, kind: REF_KIND_LOCAL_BRANCH, remotes });
+  }
+
+  // ── Tags (kind=2) — never merged.
+  for (const ref of refs) {
+    if (ref.kind === REF_KIND_TAG) {
+      result.push({ label: ref.name, kind: REF_KIND_TAG, remotes: [] });
+    }
+  }
+
+  // ── Unabsorbed remote branches (kind=1).
+  for (const ref of refs) {
+    if (ref.kind === REF_KIND_REMOTE_BRANCH && !absorbedRemotes.has(ref.name)) {
+      result.push({ label: ref.name, kind: REF_KIND_REMOTE_BRANCH, remotes: [] });
+    }
+  }
+
+  // ── Stash (kind=4).
+  for (const ref of refs) {
+    if (ref.kind === 4) {
+      result.push({ label: ref.name, kind: 4, remotes: [] });
+    }
+  }
+
+  // Detached HEAD (kind=3 with no matching local branch) — add a HEAD chip.
+  const hasHead = refs.some(r => r.kind === REF_KIND_HEAD);
+  if (hasHead && localBranchNames.size === 0) {
+    result.unshift({ label: "HEAD", kind: REF_KIND_HEAD, remotes: [] });
+  }
+
+  return result;
+}
+
+/** Width of the small kind-icon drawn at the left of each chip, in pixels. */
+const CHIP_ICON_W = 10;
+
+/**
+ * Draw a small vector icon inside a ref chip at position `(x, y)`.
+ * The icon is centred vertically around `y` and left-aligned at `x`.
+ * CSP forbids external SVG or image assets — we draw canvas paths only.
+ */
+function drawRefIcon(
+  ctx: CanvasRenderingContext2D,
+  kind: number,
+  x: number,
+  y: number,
+  color: string,
+): void {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle   = color;
+  ctx.lineWidth   = 1;
+
+  if (kind === REF_KIND_TAG) {
+    // Tag icon: a small rectangle with a rounded right side (label shape).
+    const w = 7, h = 6;
+    const tx = x, ty = y - h / 2;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx + w - 2, ty);
+    ctx.quadraticCurveTo(tx + w, ty, tx + w, ty + h / 2);
+    ctx.quadraticCurveTo(tx + w, ty + h, tx + w - 2, ty + h);
+    ctx.lineTo(tx, ty + h);
+    ctx.closePath();
+    ctx.stroke();
+    // Small punch-hole dot.
+    ctx.beginPath();
+    ctx.arc(tx + 1.5, ty + h / 2, 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Branch/remote/stash/HEAD icon: a simple fork glyph (two-segment branch).
+    //   ── stem up (vertical from mid)
+    //   └── branch off to the right at top
+    const bx = x + 1, by = y;
+    // Vertical stem.
+    ctx.beginPath();
+    ctx.moveTo(bx + 1, by + 3);
+    ctx.lineTo(bx + 1, by - 2);
+    ctx.stroke();
+    // Branch arm.
+    ctx.beginPath();
+    ctx.moveTo(bx + 1, by - 1);
+    ctx.lineTo(bx + 5, by - 3);
+    ctx.stroke();
+    // Node dots.
+    ctx.beginPath();
+    ctx.arc(bx + 1, by + 3, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(bx + 5, by - 3, 1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+/** Draw a small filled "cloud/remote" dot at the right edge of a chip. */
+function drawRemoteMark(
+  ctx: CanvasRenderingContext2D,
+  chipRight: number,
+  y: number,
+  color: string,
+): void {
+  // A 3-px filled circle to the right of the chip text, inside the chip border.
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(chipRight - 5, y, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 /**
@@ -554,20 +734,22 @@ export class CanvasRenderer {
       // ── Description column: ref chips, then subject (clipped to descRight).
       let tx = textX;
 
-      // Ref chips (sorted by kind: LocalBranch 0, RemoteBranch 1, Tag 2, HEAD 3, Stash 4).
-      const sortedRefs = [...(row.refs ?? [])].sort((a, b) => a.kind - b.kind);
-      for (const ref of sortedRefs) {
-        const label = ref.name;
-        const chipColor = refChipColor(ref.kind);
+      // Build display-level chips: merge local+remote branch pairs, add icons.
+      const displayRefs = buildDisplayRefs(row.refs ?? []);
+      for (const dref of displayRefs) {
+        const chipColor = refChipColor(dref.kind);
         this._ctx.font = "10px monospace";
-        const tw = this._ctx.measureText(label).width;
-        const chipW = tw + 8;
+        const tw = this._ctx.measureText(dref.label).width;
+        // Width = icon box + label + right padding + (remote mark space if needed).
+        const remotePad = dref.remotes.length > 0 ? 12 : 0;
+        const chipW = CHIP_ICON_W + tw + 6 + remotePad;
         const chipH = 14;
         const chipY = y - chipH / 2;
 
         // Stop drawing chips if they would overflow into the Date column.
         if (tx + chipW > descRight) break;
 
+        // Background fill and border.
         this._ctx.beginPath();
         this._ctx.roundRect(tx, chipY, chipW, chipH, 3);
         this._ctx.fillStyle = chipColor + "33"; // ~20% opacity fill
@@ -576,8 +758,18 @@ export class CanvasRenderer {
         this._ctx.lineWidth = 0.8;
         this._ctx.stroke();
 
+        // Kind icon.
+        drawRefIcon(this._ctx, dref.kind, tx + 2, y, chipColor);
+
+        // Label text.
         this._ctx.fillStyle = chipColor;
-        this._ctx.fillText(label, tx + 4, y + 4);
+        this._ctx.fillText(dref.label, tx + CHIP_ICON_W + 1, y + 4);
+
+        // Remote tracking mark (filled dot at right edge).
+        if (dref.remotes.length > 0) {
+          drawRemoteMark(this._ctx, tx + chipW, y, chipColor);
+        }
+
         tx += chipW + 4;
       }
 

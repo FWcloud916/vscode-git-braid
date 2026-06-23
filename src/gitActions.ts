@@ -117,6 +117,19 @@ export async function resetHard(oid: string, cwd: string): Promise<void> {
   await runGit(["reset", "--hard", oid], cwd);
 }
 
+// ── Remote operations ───────────────────────────────────────────────────────
+
+/**
+ * Fetch from all remotes, pruning stale remote-tracking branches.
+ *
+ * Follows the write-path convention: shells out to the `git` CLI so that
+ * credential helpers, SSH agents, and git config (core.sshCommand, etc.) are
+ * all honoured without reimplementing them.
+ */
+export async function fetch(cwd: string): Promise<void> {
+  await runGit(["fetch", "--all", "--prune"], cwd);
+}
+
 // ── Stash operations ────────────────────────────────────────────────────────
 
 export async function stashApply(stashRef: string, cwd: string): Promise<void> {

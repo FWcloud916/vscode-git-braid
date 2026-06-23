@@ -43,6 +43,7 @@
 | Webview entry / message loop | `web/index.ts` | `init`, message handler, paging state |
 | Date formatting | `web/format.ts` | `formatRelative` |
 | Context menu | `web/ui/contextMenu.ts` | `showContextMenu`, `MenuItem` |
+| Branch dropdown | `web/ui/branchDropdown.ts` | `createBranchDropdown`, `BranchDropdown`, `BranchDropdownItem` |
 
 ---
 
@@ -63,6 +64,8 @@
 | Change the release-notes command UX | `src/ai/releaseNotesCommand.ts` |
 | Change Canvas rendering / colours | `web/renderer/canvas.ts` — `_paint()` |
 | Change context menu items | `web/index.ts` — `buildMenuItems()` |
+| Change toolbar branch dropdown | `web/ui/branchDropdown.ts` — `createBranchDropdown()` |
+| Change graph branch/remote filter | `src/webviewBridge.ts` `_handleMessage` setFilter + `crates/core/src/walk.rs` `WalkOptions` |
 | Add a VS Code setting | `package.json` `contributes.configuration` |
 | Fix a CI / build issue | `.github/workflows/`, `bindings/napi/build.rs` |
 
@@ -377,6 +380,17 @@ Each file with its purpose, layer, and key exported symbols.
 - `MenuItem` — `{ label: string; action: () => void } | { separator: true }`.
 - `showContextMenu(x, y, items)` — creates and positions a fixed DOM popup, clamps to viewport, auto-dismisses on click-outside / Escape / scroll.
 - At most one menu open at a time (module-level `_current` ref).
+
+---
+
+#### `web/ui/branchDropdown.ts`
+
+**Layer:** Webview
+**Purpose:** Searchable, widened branch-switcher dropdown for the graph toolbar. Replaces a native `<select>` (which cannot host a filter input) with a custom widget styled with VS Code CSS variables.
+**Contents:**
+- `BranchDropdownItem` — `{ name, kind, isCurrent }` (same shape as `config.branches` payload).
+- `BranchDropdown` — handle returned by the factory: `{ el, setItems, setSelected }`.
+- `createBranchDropdown({ initial, onSelect })` — builds the trigger button and manages the popup lifecycle. The popup contains a `Filter Branches…` input, a "Show All" row, and a scrollable branch list with `✓`/`★` glyphs. Supports `↑/↓/Enter/Escape` keyboard navigation and auto-dismisses on outside-click or scroll. At most one popup open at a time (module-level ref, same idiom as `contextMenu.ts`). All styles are inline; no external assets (CSP-safe).
 
 ---
 

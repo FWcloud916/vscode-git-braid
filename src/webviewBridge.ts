@@ -16,7 +16,7 @@
  *   `{ type: "batch", payload: ArrayBuffer }` — BRAI v2 binary batch
  *   `{ type: "commitDetail", detail: CommitDetail }` — single commit full detail
  *   `{ type: "findResults", query, matches }` — full-history search results
- *   `{ type: "config", dateFormat, palette }` — display settings
+ *   `{ type: "config", dateFormat, palette, branches, currentBranch }` — display settings
  *   `{ type: "reload" }` — clear rows and re-request from offset 0 (after write op)
  *   `{ type: "error", message: string }`
  *
@@ -27,17 +27,21 @@
  *   `{ type: "openDiff", filePath, oldOid, newOid, status }` — file diff request
  *   `{ type: "action", op: GitActionOp, oid, refs }` — git write op request
  *   `{ type: "copy", field: "hash"|"shortHash"|"subject"|"message", oid: string }` — clipboard copy
+ *   `{ type: "setFilter", includeRemotes: boolean, branch: string | null }` — graph filter
+ *   `{ type: "fetch" }` — run `git fetch --all --prune`
+ *   `{ type: "refresh" }` — reload graph from current repo state
  */
 
 import * as path from "path";
 import * as vscode from "vscode";
-import { getGraphBatch, getCommitDetail, findCommits, type CommitDetail, type FindMatch } from "@git-braid/native";
+import { getGraphBatch, getCommitDetail, findCommits, listBranches, type CommitDetail, type FindMatch } from "@git-braid/native";
 import { buildDiffUri } from "./diffProvider";
 import {
   checkout, createBranch, deleteBranch, createTag, deleteTag,
   merge, rebase, cherryPick, revert,
   resetSoft, resetMixed, resetHard,
   stashApply, stashPop, stashDrop,
+  fetch as gitFetch,
   isConflictError,
 } from "./gitActions";
 
@@ -97,14 +101,20 @@ type WebviewMessage =
   | { type: "selectCommit"; oid: string }
   | { type: "openDiff"; filePath: string; oldOid: string; newOid: string; status: string }
   | { type: "action"; op: GitActionOp; oid: string; refs: ActionRef[] }
-  | { type: "copy"; field: "hash" | "shortHash" | "subject" | "message"; oid: string };
+  | { type: "copy"; field: "hash" | "shortHash" | "subject" | "message"; oid: string }
+  | { type: "setFilter"; includeRemotes: boolean; branch: string | null }
+  | { type: "fetch" }
+  | { type: "refresh" };
+
+/** A branch entry sent in the `config` message for the toolbar switcher. */
+interface BranchEntry { name: string; kind: number; isCurrent: boolean }
 
 /** Messages the extension host can send to the webview. */
 type HostMessage =
   | { type: "batch"; payload: ArrayBuffer }
   | { type: "commitDetail"; detail: CommitDetail }
   | { type: "findResults"; query: string; matches: FindMatch[] }
-  | { type: "config"; dateFormat: string; palette: string[] }
+  | { type: "config"; dateFormat: string; palette: string[]; branches: BranchEntry[]; currentBranch: string | null }
   | { type: "reload" }
   | { type: "actionResult"; op: string; ok: boolean; message?: string }
   | { type: "error"; message: string };
@@ -114,6 +124,18 @@ export class WebviewBridge implements vscode.Disposable {
   private readonly _disposables: vscode.Disposable[] = [];
   // Lazy output channel for surfacing full git stderr to the user on demand.
   private _outputChannel: vscode.OutputChannel | undefined;
+
+  // ── Graph filter state ────────────────────────────────────────────────────
+  // Toggled by the webview toolbar; persisted for the lifetime of the panel.
+
+  /** When `true`, remote-tracking branches are excluded from the graph walk. */
+  private _excludeRemotes = false;
+
+  /**
+   * When non-null, only this local branch (and its remote-tracking counterparts
+   * when `_excludeRemotes` is `false`) are used as walk tips.
+   */
+  private _branchFilter: string | null = null;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -152,6 +174,60 @@ export class WebviewBridge implements vscode.Disposable {
       undefined,
       this._disposables,
     );
+
+    // ── Auto-refresh on local git changes ────────────────────────────────────
+    //
+    // Watch ref-mutating paths inside .git so that commits/checkouts/fetches
+    // performed outside Git Braid (e.g. in the integrated terminal) are
+    // reflected automatically.  Watcher is disposed with the panel.
+    //
+    // Paths watched (relative to the .git directory):
+    //   HEAD       — branch switch / detach
+    //   refs/**    — individual ref files (loose)
+    //   packed-refs — packed ref updates (fetch, prune)
+    //   ORIG_HEAD  — reset / rebase / merge saves this
+    //
+    // We intentionally do NOT watch `.git/index` to avoid noise from
+    // staging-only changes that don't affect the commit graph.
+    this._setupGitWatcher(context);
+  }
+
+  /**
+   * Attach a `FileSystemWatcher` on the repo's `.git` ref-mutating files and
+   * trigger a debounced `reload` on any change.
+   */
+  private _setupGitWatcher(_context: vscode.ExtensionContext): void {
+    // Resolve the .git dir path.  For a normal worktree the .git entry is a
+    // directory; for a worktree checkout it may be a file — in either case
+    // `repoPath/.git` is the conventional location and gitoxide resolves both.
+    const gitDir = path.join(this._repoPath, ".git");
+
+    // Build a combined glob that covers all ref-mutating files.
+    const pattern = new vscode.RelativePattern(
+      vscode.Uri.file(gitDir),
+      "{HEAD,packed-refs,ORIG_HEAD,refs/**}",
+    );
+
+    const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+
+    // Debounce: coalesce rapid bursts (e.g. a fetch that updates many refs)
+    // into a single reload.  300 ms is long enough to absorb a full `git fetch`
+    // ref-update sequence while still feeling immediate to the user.
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleReload = (): void => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        void this._postMessage({ type: "reload" });
+      }, 300);
+    };
+
+    watcher.onDidCreate(scheduleReload, undefined, this._disposables);
+    watcher.onDidChange(scheduleReload, undefined, this._disposables);
+    watcher.onDidDelete(scheduleReload, undefined, this._disposables);
+
+    this._disposables.push(watcher, {
+      dispose(): void { clearTimeout(debounceTimer); },
+    });
   }
 
   reveal(): void {
@@ -208,7 +284,36 @@ export class WebviewBridge implements vscode.Disposable {
       case "copy":
         void this._handleCopy(message);
         break;
+      case "setFilter":
+        this._excludeRemotes = !message.includeRemotes;
+        this._branchFilter = message.branch;
+        void this._postMessage({ type: "reload" });
+        break;
+      case "refresh":
+        void this._postMessage({ type: "reload" });
+        break;
+      case "fetch":
+        void this._handleFetch();
+        break;
     }
+  }
+
+  /** Run `git fetch --all --prune` and reload the graph on success. */
+  private async _handleFetch(): Promise<void> {
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Window, title: "Git Braid: fetching…" },
+      async () => {
+        try {
+          await gitFetch(this._repoPath);
+          // The FileSystemWatcher will fire and trigger a reload automatically,
+          // but post one immediately so the graph refreshes even if the watcher
+          // is delayed or the repo has no new refs.
+          await this._postMessage({ type: "reload" });
+        } catch (err) {
+          await this._presentGitError("fetch", err);
+        }
+      },
+    );
   }
 
   /**
@@ -223,7 +328,20 @@ export class WebviewBridge implements vscode.Disposable {
     const cfg = vscode.workspace.getConfiguration("gitBraid");
     const dateFormat = cfg.get<string>("dateFormat") ?? "absolute";
     const palette = cfg.get<string[]>("graphColors") ?? [];
-    await this._postMessage({ type: "config", dateFormat, palette });
+
+    // Fetch the branch list for the toolbar switcher.  Failures are non-fatal
+    // (e.g. empty repo with no commits yet) — fall back to an empty list.
+    let branches: BranchEntry[] = [];
+    let currentBranch: string | null = null;
+    try {
+      const raw = listBranches(this._repoPath);
+      branches = raw.map(b => ({ name: b.name, kind: b.kind, isCurrent: b.isCurrent }));
+      currentBranch = raw.find(b => b.isCurrent)?.name ?? null;
+    } catch {
+      // ignore — non-fatal; toolbar will just show "All branches" with no list
+    }
+
+    await this._postMessage({ type: "config", dateFormat, palette, branches, currentBranch });
   }
 
   /** Send the initial batch on `ready`, using the configured commit load size. */
@@ -243,7 +361,13 @@ export class WebviewBridge implements vscode.Disposable {
    */
   private async _sendBatch(offset: number, limit: number): Promise<void> {
     try {
-      const result = getGraphBatch(this._repoPath, offset, limit);
+      const result = getGraphBatch(
+        this._repoPath,
+        offset,
+        limit,
+        this._excludeRemotes,
+        this._branchFilter ?? undefined,
+      );
       // Node.js `Buffer` may share a pool-allocated `ArrayBuffer`. Slice to get
       // an independent `ArrayBuffer` backed exactly by these bytes (required for
       // VS Code's transferable postMessage serialisation).
