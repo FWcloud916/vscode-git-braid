@@ -2,7 +2,7 @@
 
 > High-performance, AI-assisted git graph visualisation for VS Code.
 
-**Status:** Pre-MVP · Phase 0 in progress · [See PROGRESS.md](./PROGRESS.md)
+**Status:** Preview release ready · M6 complete · [See PROGRESS.md](./PROGRESS.md)
 
 ---
 
@@ -23,9 +23,29 @@ Two core differentiators:
 1. **Performance** — 10k–100k commit repos remain smooth. Rust core reads the
    git object database directly (via [gitoxide](https://github.com/Byron/gitoxide));
    a Canvas virtualised renderer paints only the visible window.
-2. **AI assistance** — semantic commit search, PR/release-notes generation,
-   merge-conflict context summaries. Uses VS Code's Language Model API (no key
-   required) with a BYO-key fallback.
+2. **AI assistance** — release-notes generation, merge-conflict context summaries.
+   Uses VS Code's Language Model API (no key required) with BYO-key fallback
+   (Anthropic, OpenAI, Gemini, Groq).
+
+---
+
+## Features
+
+- **Commit graph** — virtualised Canvas renderer; smooth scrolling on repos with
+  100k+ commits; bezier lane curves, merge rings, ref chips
+- **Commit detail** — metadata, ref labels, changed-file list with A/M/D badges,
+  click-to-diff (uses VS Code's built-in diff viewer)
+- **Full-history search** — find by subject, author, or OID prefix; auto-loads
+  commits on demand to reach a match (`Cmd/Ctrl+F`)
+- **Write operations** — checkout, branch/tag CRUD, merge, rebase, cherry-pick,
+  revert, reset (soft/mixed/hard), stash apply/pop/drop — all via the `git` CLI
+- **Context menu** — right-click any commit for the full write-op menu
+- **Copy actions** — copy commit hash / short hash / subject / full message
+- **Multi-repo workspaces** — auto-detects repos; picker for multi-root workspaces
+- **AI release-notes** — pick two refs → AI generates Markdown release notes;
+  two privacy modes (metadata-only vs +diff stat); consent modal per run
+- **Settings** — `dateFormat`, `graphColors`, `ai.provider`, `ai.model`,
+  `ai.defaultDiffStat`
 
 ---
 
@@ -81,16 +101,16 @@ edge cases correctly.
 
 ```bash
 # Clone
-git clone https://github.com/TBD/vscode-git-braid
+git clone https://github.com/FWcloud916/vscode-git-braid
 cd vscode-git-braid
 
 # Install JS dependencies
 pnpm install
 
-# Build the TypeScript extension + webview
+# Build the TypeScript extension + webview (includes native vendor step)
 pnpm run build
 
-# Run Rust tests (golden tests are #[ignore] until M1)
+# Run Rust tests
 cargo test --workspace
 
 # Check Rust formatting + lints
@@ -110,8 +130,18 @@ pnpm run lint
 ### Build the native addon locally
 
 ```bash
-# Requires the napi-rs CLI (installed via pnpm)
+# Debug build (faster; for local development)
 pnpm run build:napi:debug
+
+# Release build (for packaging)
+pnpm run build:napi
+```
+
+### Package a local .vsix
+
+```bash
+# Builds release addon + vendors it, then packages for the current platform
+pnpm run package
 ```
 
 ---
@@ -120,16 +150,15 @@ pnpm run build:napi:debug
 
 | Milestone | Description | Status |
 |-----------|-------------|--------|
-| M0 | Rust core: gitoxide log walk + topo sort | 🔲 |
-| M1 | Layout algorithm + napi binding | 🔲 |
-| **M2** | **Canvas virtualised renderer — MVP demo** | 🔲 |
-| M3 | Commit detail / diff / refs / find | 🔲 |
-| M4 | Write operations + context menu | 🔲 |
-| M5 | First AI feature (release-notes generation) | 🔲 |
-| M6 | Marketplace publish (preview) | 🔲 |
+| M0 | Rust core: gitoxide log walk + topo sort | ✅ |
+| M1 | Layout algorithm + napi binding | ✅ |
+| M2 | Canvas virtualised renderer — MVP demo | ✅ |
+| M3 | Commit detail / diff / refs / find | ✅ |
+| M4 | Write operations + context menu | ✅ |
+| M5 | First AI feature (release-notes generation) | ✅ |
+| M6 | Marketplace publish (preview) | ✅ |
 
-> **M2 is the go/no-go gate.** If the MVP demo is not compelling, the project
-> stops. See [PROGRESS.md](./PROGRESS.md) for current status.
+See [PROGRESS.md](./PROGRESS.md) for detailed task-level status.
 
 ---
 
