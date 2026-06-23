@@ -4,7 +4,21 @@
 
 ---
 
-## Current milestone: Graph toolbar, ref rendering & branch dropdown
+## Current milestone: Status-bar button & tab icon
+
+**Goal:** Two UX polish items: (1) a persistent `$(git-branch) Git Braid` status-bar button that opens the graph from any context, always visible from startup; (2) the opened editor tab shows the Git Braid icon (`media/icon.png`) instead of the default file icon.
+
+**Status:** ✅ Done
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `src/extension.ts` — `StatusBarItem` created in `activate()`, left-aligned, runs `gitBraid.openGraph`, pushed to subscriptions | ✅ | Single-repo → opens directly (no picker); `openGraph` already handles this |
+| `src/webviewBridge.ts` — `this._panel.iconPath` set to `media/icon.png` after `createWebviewPanel` | ✅ | `iconPath` does not require `localResourceRoots` |
+| `package.json` — added `"activationEvents": ["onStartupFinished"]` | ✅ | Without this the extension only activates on first command; status bar would not appear until then |
+
+---
+
+## Previous milestone: Graph toolbar, ref rendering & branch dropdown
 
 **Goal:** Four UX improvements to the graph webview: (1) merge local+remote chips at the same commit into one chip with a remote mark; (2) small icons distinguishing tags from branches; (3) toolbar with branch switcher, remote toggle, fetch, and refresh; (4) auto-refresh on local git change. Plus a searchable, widened branch dropdown replacing the native `<select>`.
 

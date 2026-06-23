@@ -205,7 +205,20 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  context.subscriptions.push(openGraph, selectRepo, find, generateReleaseNotes, clearAiKey);
+  // ── Status-bar open button ────────────────────────────────────────────────
+  // Always-visible entry point in the bottom-left of VS Code. Clicking it runs
+  // the same `gitBraid.openGraph` command (single repo → opens directly, multi
+  // repo → shows picker, already open → reveals).
+  const statusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    0,
+  );
+  statusBarItem.text = "$(git-branch) Git Braid";
+  statusBarItem.tooltip = "Open Git Braid graph";
+  statusBarItem.command = "gitBraid.openGraph";
+  statusBarItem.show();
+
+  context.subscriptions.push(openGraph, selectRepo, find, generateReleaseNotes, clearAiKey, statusBarItem);
 }
 
 export function deactivate(): void {

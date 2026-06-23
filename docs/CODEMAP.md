@@ -223,7 +223,7 @@ Each file with its purpose, layer, and key exported symbols.
 **Layer:** Extension host
 **Purpose:** VS Code extension entry point — registers commands and manages the single WebviewBridge instance.
 **Contents:**
-- `activate(context)` — registers five commands: `openGraph`, `selectRepo`, `find`, `generateReleaseNotes`, `clearAiKey`. Registers `GitBraidContentProvider`.
+- `activate(context)` — registers five commands: `openGraph`, `selectRepo`, `find`, `generateReleaseNotes`, `clearAiKey`. Registers `GitBraidContentProvider`. Creates a left-aligned `StatusBarItem` (text `$(git-branch) Git Braid`) that runs `gitBraid.openGraph`; always visible from startup via `"activationEvents": ["onStartupFinished"]` in `package.json`.
 - `deactivate()` — disposes the bridge.
 - `resolveRepos()` — maps workspace folders through gitoxide discovery; returns unique repo roots. Exported for reuse by AI command.
 - `pickRepo(repos)` — single-repo shortcut or QuickPick. Exported for reuse by AI command.
@@ -236,7 +236,7 @@ Each file with its purpose, layer, and key exported symbols.
 **Layer:** Extension host
 **Purpose:** Manages the VS Code WebviewPanel and all host ↔ webview message exchange.
 **Contents:**
-- `WebviewBridge` class with `reveal()`, `find()`, `dispose()`.
+- `WebviewBridge` class with `reveal()`, `find()`, `dispose()`. Panel `iconPath` set to `media/icon.png` so the editor tab shows the Git Braid icon.
 - `_handleMessage(message)` — dispatch switch over 6 message types: `ready`, `requestBatch`, `selectCommit`, `openDiff`, `action`, `copy`.
 - `_sendBatch(offset, limit)` — calls `getGraphBatch`, slices the Node.js Buffer, posts `ArrayBuffer`.
 - `_sendCommitDetail(oid)` — calls `getCommitDetail`, posts.

@@ -152,6 +152,9 @@ export class WebviewBridge implements vscode.Disposable {
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")],
       },
     );
+    // Give the editor tab a recognisable icon. iconPath references the extension
+    // bundle directly and does not need to be in localResourceRoots.
+    this._panel.iconPath = vscode.Uri.joinPath(context.extensionUri, "media", "icon.png");
 
     const webviewJsUri = this._panel.webview.asWebviewUri(
       vscode.Uri.joinPath(context.extensionUri, "dist", "webview.js"),
