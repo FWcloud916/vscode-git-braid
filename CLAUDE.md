@@ -121,6 +121,27 @@ pnpm run build:napi                        # release build
 
 ---
 
+## GitHub Actions — commit-hash pinning rule
+
+Every `uses:` line in `.github/workflows/` **must** use a full 40-char commit SHA,
+never a floating tag. Keep the version tag as an inline comment:
+
+```yaml
+- uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+```
+
+To resolve a SHA when adding or upgrading an action:
+
+```bash
+# Tag-based action:
+gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq '.object.sha'
+# If type == "tag" (annotated), dereference: gh api repos/.../git/tags/<sha> --jq '.object.sha'
+# Branch-based (e.g. dtolnay/rust-toolchain@stable):
+gh api repos/<owner>/<repo>/git/ref/heads/<branch> --jq '.object.sha'
+```
+
+---
+
 ## napi prebuild note
 
 The `.node` native addon must be prebuilt for all 4 targets in CI *early* (M1, not at

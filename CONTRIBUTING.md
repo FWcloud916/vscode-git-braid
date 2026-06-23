@@ -204,7 +204,41 @@ See `docs/guides/doc-conventions.md` for the full rules. Summary:
 
 ---
 
-## 8. Licence sign-off
+## 8. GitHub Actions — commit-hash pinning
+
+All `uses:` entries in `.github/workflows/` **must** reference a full commit SHA,
+not a floating version tag. This prevents supply-chain attacks where a tag is
+silently moved to malicious code.
+
+**Format** — full 40-char SHA, version tag as inline comment:
+
+```yaml
+- uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+```
+
+**Never** write:
+```yaml
+- uses: actions/checkout@v5   # ← forbidden: tag can be moved
+```
+
+### Resolving a SHA for a new action or version bump
+
+```bash
+# For a tag (most actions):
+gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq '.object.sha'
+# If the result type is "tag" (annotated), dereference once more:
+gh api repos/<owner>/<repo>/git/tags/<sha> --jq '.object.sha'
+
+# For a branch ref (e.g. dtolnay/rust-toolchain@stable):
+gh api repos/<owner>/<repo>/git/ref/heads/<branch> --jq '.object.sha'
+```
+
+Current pinned SHAs are in the workflow files. Bump them together with any
+version upgrade (`chore(ci):` commit, same PR as the action version change).
+
+---
+
+## 9. Licence sign-off
 
 By contributing, you agree that your contribution is licensed under the
 [MIT License](./LICENSE) and that you have the right to make that contribution.
