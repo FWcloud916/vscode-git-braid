@@ -51,47 +51,14 @@ Two core differentiators:
 
 ## Architecture
 
-```
-┌───────────────────────────────────────────────────────────┐
-│  Webview (Browser — Canvas virtualised renderer)          │
-│  web/renderer/canvas.ts · web/index.ts                    │
-└───────────────▲───────────────────┬───────────────────────┘
-                │ binary ArrayBuffer│ postMessage (user actions)
-┌───────────────┴───────────────────▼───────────────────────┐
-│  Extension Host (Node.js / TypeScript)                    │
-│  src/extension.ts · src/webviewBridge.ts                  │
-│  src/gitActions.ts (write ops) · src/ai/provider.ts       │
-└───────────────▲───────────────────┬───────────────────────┘
-                │ napi-rs FFI       │ child_process (git CLI)
-┌───────────────┴───────────┐  ┌────▼──────────────────────┐
-│  Rust core (native addon) │  │  git CLI (write ops only) │
-│  crates/core/             │  │  checkout · merge · …     │
-│  · walk.rs  (gitoxide)    │  └───────────────────────────┘
-│  · layout.rs (pure fn)    │
-│  · serialize.rs (binary)  │
-└───────────────────────────┘
-```
+Git Braid is a four-layer system: a Rust core (gitoxide) walks the ODB directly
+and encodes batches as flat binary buffers; a napi-rs native addon bridges Rust to
+the TypeScript extension host; the host manages VS Code commands, the webview panel,
+and AI features; and the webview's Canvas renderer paints only the visible window at
+60fps. Write operations shell out to the `git` CLI; reads never spawn a subprocess.
 
-**Read/write split** (key design decision): the hot read path (log walk +
-layout) runs in Rust for maximum performance. All write operations shell out
-to the `git` CLI — git's own binary handles hooks, submodules, and config
-edge cases correctly.
-
----
-
-## Technology stack
-
-| Layer | Choice | Reason |
-|-------|--------|--------|
-| Rust core | Rust + gitoxide (`gix`) | Pure Rust; direct ODB read without subprocess |
-| FFI | napi-rs (native addon) | Direct file-system access; highest performance |
-| Write ops | `git` CLI via `child_process` | Correctness; avoids reimplementing edge cases |
-| Extension | TypeScript + VS Code Extension API | Required by the platform |
-| Renderer | Canvas 2D (→ WebGL for extreme scale) | Virtualised; no DOM node per commit |
-| Binary protocol | Custom flat ArrayBuffer | Zero GC pressure in the render loop |
-| AI | `vscode.lm` API + BYO-key fallback | User's existing subscription; no key management |
-| Tests | `cargo test` + Criterion benchmarks; Vitest | Performance regressions gated in CI |
-| CI | GitHub Actions (multi-platform napi prebuild) | darwin-arm64/x64, linux-x64, win-x64 |
+See **[docs/architecture.md](docs/architecture.md)** for the full architecture record:
+component diagram, data-flows, binary protocol, tech-stack table, and hard constraints.
 
 ---
 

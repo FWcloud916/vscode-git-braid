@@ -51,7 +51,7 @@ Both groups must be served without privileging one over the other. Additionally:
 **API key storage:** `context.secrets` (VS Code `SecretStorage` — OS keychain on
 macOS/Windows, libsecret on Linux). Keys are prompted via `showInputBox({
 password: true })` on first use and stored by a stable per-provider key name
-(`"gitBraid.ai.key.<provider>"`). They never appear in settings.json or
+(`"gitBraid.ai.apiKey.<provider>"`). They never appear in settings.json or
 workspace state.
 
 **Per-run consent modal:** before any AI call the user sees a modal listing the
@@ -87,3 +87,12 @@ satisfies plan §7.3 — the user confirms every run, not just at setup time.
   for `vscode-lm` (model selection is VS Code's concern).
 - If a sixth provider is needed, add a new `BYOProviderType` literal and a
   matching branch in `BYOKeyProvider.complete()`.
+
+---
+
+## Related docs
+
+- [docs/ai/README.md](../ai/README.md) — AI subsystem hub: feature→file map, privacy model, configuration surface
+- [docs/specs/ai-provider-spec.md](../specs/ai-provider-spec.md) — Protocol spec: per-provider system-role normalisation, error contract
+- [docs/specs/ai-release-notes-spec.md](../specs/ai-release-notes-spec.md) — Behaviour spec: 10-step command flow, prompt contract, privacy levels
+- [docs/ai/planned-features.md](../ai/planned-features.md) — Architecture notes for three planned AI features

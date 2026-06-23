@@ -54,28 +54,15 @@ These are **non-goals** — do not implement them even if asked:
 
 ---
 
-## Architecture — where code lives
+## Architecture and code map
 
-```
-crates/core/         Rust: log walk (M0), layout (M1), binary serialize
-bindings/napi/       napi-rs native addon: thin FFI adapter, no business logic
-src/                 TypeScript extension host
-  extension.ts       activate/deactivate + command registration
-  webviewBridge.ts   host↔webview binary protocol (ArrayBuffer paging)
-  gitActions.ts      git write ops via CLI — Phase 2
-  ai/provider.ts     AIProvider abstraction — Phase 3
-web/                 Webview (browser context)
-  renderer/canvas.ts Canvas virtualised renderer
-  index.ts           entry, postMessage handling
-docs/specs/          Algorithm specs (System Contracts style)
-docs/adr/            Architecture decision records
-docs/plan/           Project plan
-```
+See **[docs/architecture.md](docs/architecture.md)** for the full architecture
+record: component diagram, data-flows (read / write / AI), binary protocol,
+tech-stack table, and hard-constraint rationale.
 
-### Read/write split
-
-- **Read path** (hot): Rust → gitoxide → direct ODB access. Never spawn git for reads.
-- **Write path** (cold): TypeScript → `child_process.spawn('git', …)`. Never use a git library for writes.
+See **[docs/CODEMAP.md](docs/CODEMAP.md)** for the per-file reference: one
+entry for every core file with its purpose, layer, and key symbols, plus
+"where do I change X?" task tables.
 
 ---
 
@@ -103,17 +90,17 @@ pnpm run build:napi                        # release build
 
 ## Commit & doc conventions
 
-- **Conventional Commits**: `feat:`, `fix:`, `perf:`, `docs:`, `test:`, `chore:`, `refactor:`
-- Scope: `(core)`, `(napi)`, `(ext)`, `(web)`, `(ci)`, `(docs)`
-- Examples: `feat(core): implement log walk using gitoxide` · `perf(web): virtualise renderer`
-- Docs in `docs/adr/` for every non-obvious architectural decision.
-- Docs in `docs/specs/` for every cross-layer algorithm contract.
+Conventional Commits with scopes `(core)`, `(napi)`, `(ext)`, `(web)`, `(ci)`, `(docs)`.
+See **[docs/guides/doc-conventions.md](docs/guides/doc-conventions.md)** for the full policy:
+commit scope examples, rustdoc/TSDoc rules, doc language policy, and when to write an ADR vs spec.
 
 ---
 
 ## Key docs to read
 
-- `docs/plan/project-plan.md` — full project plan (milestones, risks, tech choices)
+- `docs/architecture.md` — full architecture: diagrams, data-flows, tech stack, constraints
+- `docs/CODEMAP.md` — per-file reference + "where do I change X?" tables
+- `docs/ai/README.md` — AI subsystem hub: feature→file map, privacy model, configuration
 - `docs/specs/layout-spec.md` — layout algorithm specification (before touching `layout.rs`)
 - `docs/adr/` — rationale for gitoxide, napi, read/write split, clean-room approach
 - `CONTRIBUTING.md` — dev setup + clean-room workflow + PR checklist
