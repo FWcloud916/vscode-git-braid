@@ -79,6 +79,7 @@ jobs:
           pnpm exec vsce package \
             --target ${{ matrix.platform.vsceTarget }} \
             --pre-release \
+            --no-dependencies \
             -o git-braid-${{ matrix.platform.vsceTarget }}.vsix
 
       # Publish to the Marketplace.
@@ -90,6 +91,7 @@ jobs:
           pnpm exec vsce publish \
             --target ${{ matrix.platform.vsceTarget }} \
             --pre-release \
+            --no-dependencies \
             --packagePath git-braid-${{ matrix.platform.vsceTarget }}.vsix
 
       # Keep the .vsix as a release artifact (optional but useful for debugging).

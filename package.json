@@ -145,7 +145,7 @@
     "build:napi:debug": "pnpm --filter @git-braid/native build:debug",
     "gen-dts:napi": "pnpm --filter @git-braid/native gen-dts",
     "vendor:native": "node scripts/vendor-native.mjs",
-    "package": "pnpm run build && vsce package --target darwin-arm64 --pre-release -o git-braid-darwin-arm64.vsix",
+    "package": "pnpm run build && vsce package --target darwin-arm64 --pre-release --no-dependencies -o git-braid-darwin-arm64.vsix",
     "typecheck": "tsc --noEmit && tsc --project tsconfig.web.json --noEmit",
     "lint": "eslint src web",
     "lint:fix": "eslint src web --fix",
