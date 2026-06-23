@@ -28,8 +28,12 @@ node_modules/
 target/
 *.tsbuildinfo
 
+# Assets not needed at runtime
+media/logo.png
+
 # Misc
 .DS_Store
 **/.DS_Store
 CONTRIBUTING.md
 PROGRESS.md
+RELEASING.md
