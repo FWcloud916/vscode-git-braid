@@ -14,9 +14,9 @@ jobs:
   build-napi:
     uses: ./.github/workflows/build-napi.yml
 
-  # Phase 2 — Package and publish one .vsix per platform, all on ubuntu-latest.
+  # Phase 2 — Package one .vsix per platform in parallel (no publish here).
   # vsce packaging is cross-platform (the .node is just a file being zipped).
-  package-publish:
+  package:
     needs: build-napi
     runs-on: ubuntu-latest
     strategy:
@@ -73,7 +73,7 @@ jobs:
       - name: Build and vendor native
         run: pnpm run build
 
-      # Package the per-platform .vsix.
+      # Package the per-platform .vsix and upload as an artifact for the publish job.
       - name: Package .vsix
         run: |
           pnpm exec vsce package \
@@ -82,20 +82,53 @@ jobs:
             --no-dependencies \
             -o git-braid-${{ matrix.platform.vsceTarget }}.vsix
 
-      # Publish to the Marketplace.
-      # Requires VSCE_PAT repo secret (Azure DevOps token, Marketplace → Manage scope).
+      - name: Upload .vsix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.platform.vsceTarget }}
+          path: git-braid-${{ matrix.platform.vsceTarget }}.vsix
+          retention-days: 30
+
+  # Phase 3 — Publish all 4 .vsix files in a single vsce invocation.
+  # Running publish in one process eliminates the race condition where parallel
+  # legs each try to create the same version on the Marketplace simultaneously,
+  # causing "The extension already exists" errors on the slower legs.
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Download all 4 platform .vsix files into the current directory.
+      - name: Download all .vsix artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          merge-multiple: true
+
+      # Publish all platforms in one process — vsce creates the version once and
+      # attaches each platform asset sequentially, no cross-process collision.
       - name: Publish to Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           pnpm exec vsce publish \
             --pre-release \
-            --packagePath git-braid-${{ matrix.platform.vsceTarget }}.vsix
-
-      # Keep the .vsix as a release artifact (optional but useful for debugging).
-      - name: Upload .vsix artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: git-braid-${{ matrix.platform.vsceTarget }}.vsix
-          path: git-braid-${{ matrix.platform.vsceTarget }}.vsix
-          retention-days: 30
+            --packagePath \
+              git-braid-darwin-arm64.vsix \
+              git-braid-darwin-x64.vsix \
+              git-braid-linux-x64.vsix \
+              git-braid-win32-x64.vsix
