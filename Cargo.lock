@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "git-braid-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",
@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "git-braid-napi"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "git-braid-core",
  "gix",
