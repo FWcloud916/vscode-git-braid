@@ -9,6 +9,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-23
+
+### Added
+- **Tag-driven stable/pre-release publish** — clean `vX.Y.Z` tags publish a
+  stable Marketplace release; suffixed tags (`vX.Y.Z-rc.N`, `-beta.N`) publish
+  a pre-release. Previously all `v*` tags forced `--pre-release`.
+- **`RELEASING.md`** — release runbook covering prerequisites, tag convention,
+  versioning policy, and step-by-step checklist.
+
 ## [0.1.2] — 2026-06-23
 
 ### Added
@@ -53,7 +62,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Initial project scaffold: Rust workspace, TypeScript extension host, webview
   renderer, CI workflows, ADRs, and spec documentation.
 
-[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/FWcloud916/vscode-git-braid/releases/tag/v0.1.0

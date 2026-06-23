@@ -4,7 +4,20 @@
 
 ---
 
-## Current milestone: Status-bar button & tab icon
+## Current milestone: Stable release pipeline (v0.2.0)
+
+**Goal:** Enable official (stable) Marketplace releases. Previously all `v*` tags forced `--pre-release`. Tag shape now determines the channel.
+
+**Status:** ✅ Done
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `.github/workflows/publish.yml` — `prepare` job classifies tag; `--pre-release` flag conditional in both `package` and `publish` jobs | ✅ | Clean `vX.Y.Z` → stable; `vX.Y.Z-<suffix>` → pre-release |
+| `RELEASING.md` — prerequisites, tag convention, even/odd minor policy, checklist, troubleshooting | ✅ | First stable release must be `v0.2.0` (`v0.1.x` permanently pre-release) |
+
+---
+
+## Previous milestone: Status-bar button & tab icon
 
 **Goal:** Two UX polish items: (1) a persistent `$(git-branch) Git Braid` status-bar button that opens the graph from any context, always visible from startup; (2) the opened editor tab shows the Git Braid icon (`media/icon.png`) instead of the default file icon.
 
