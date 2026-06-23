@@ -10,6 +10,26 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Phase 0 — Classify the tag: clean vX.Y.Z → stable, vX.Y.Z-<suffix> → pre-release.
+  # The pre_release output is consumed by both the package and publish jobs so the
+  # --pre-release flag stays perfectly consistent between the two steps.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      pre_release: ${{ steps.detect.outputs.pre_release }}
+    steps:
+      - name: Detect release channel from tag
+        id: detect
+        run: |
+          # A hyphen after the version core (e.g. v0.2.0-rc.1) marks a pre-release.
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            echo "pre_release=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${GITHUB_REF_NAME} → pre-release"
+          else
+            echo "pre_release=false" >> "$GITHUB_OUTPUT"
+            echo "Tag ${GITHUB_REF_NAME} → stable release"
+          fi
+
   # Phase 1 — Build all 4 platform .node binaries (reuses build-napi.yml).
   build-napi:
     uses: ./.github/workflows/build-napi.yml
@@ -17,7 +37,7 @@ jobs:
   # Phase 2 — Package one .vsix per platform in parallel (no publish here).
   # vsce packaging is cross-platform (the .node is just a file being zipped).
   package:
-    needs: build-napi
+    needs: [build-napi, prepare]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -74,9 +94,11 @@ jobs:
       # Package the per-platform .vsix and upload as an artifact for the publish job.
       - name: Package .vsix
         run: |
+          PRE_RELEASE_FLAG=""
+          [ "${{ needs.prepare.outputs.pre_release }}" = "true" ] && PRE_RELEASE_FLAG="--pre-release"
           pnpm exec vsce package \
             --target ${{ matrix.platform.vsceTarget }} \
-            --pre-release \
+            $PRE_RELEASE_FLAG \
             --no-dependencies \
             -o git-braid-${{ matrix.platform.vsceTarget }}.vsix
 
@@ -92,7 +114,7 @@ jobs:
   # legs each try to create the same version on the Marketplace simultaneously,
   # causing "The extension already exists" errors on the slower legs.
   publish:
-    needs: package
+    needs: [package, prepare]
     runs-on: ubuntu-latest
 
     steps:
@@ -121,8 +143,10 @@ jobs:
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
+          PRE_RELEASE_FLAG=""
+          [ "${{ needs.prepare.outputs.pre_release }}" = "true" ] && PRE_RELEASE_FLAG="--pre-release"
           pnpm exec vsce publish \
-            --pre-release \
+            $PRE_RELEASE_FLAG \
             --packagePath \
               git-braid-darwin-arm64.vsix \
               git-braid-darwin-x64.vsix \
