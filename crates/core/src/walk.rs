@@ -203,8 +203,8 @@ pub fn walk_commits(
         let commit = obj.try_into_commit()?;
         let data = commit.decode()?;
 
-        let author = data.author().name.to_str_lossy().into_owned();
-        let commit_time = data.committer().time.seconds;
+        let author = data.author()?.name.to_str_lossy().into_owned();
+        let commit_time = data.committer()?.time()?.seconds;
         let subject = data
             .message
             .split(|&b| b == b'\n')
@@ -433,8 +433,8 @@ pub fn walk_range(
             .next()
             .map(|s| String::from_utf8_lossy(s).into_owned())
             .unwrap_or_default();
-        let author_name = data.author().name.to_str_lossy().into_owned();
-        let commit_time = data.committer().time.seconds;
+        let author_name = data.author()?.name.to_str_lossy().into_owned();
+        let commit_time = data.committer()?.time()?.seconds;
         // Copy parent OID before dropping `data` (ObjectId is Copy).
         let parent_oid: Option<gix::ObjectId> = data.parents().next();
         drop(data); // release borrow on `commit`
@@ -494,7 +494,7 @@ fn diffstat_trees(
     insertions: &mut u32,
     deletions: &mut u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use gix::object::tree::diff::{Action, Change};
+    use gix::object::tree::diff::Change;
 
     // Collect OID pairs first; avoid blob fetches inside the closure to dodge
     // any potential borrow conflicts with the tree-diff iterator.
@@ -526,11 +526,11 @@ fn diffstat_trees(
                 },
                 // Rewrites are disabled; this arm is unreachable in practice.
                 Change::Rewrite { .. } => {
-                    return Ok::<_, std::convert::Infallible>(Action::Continue)
+                    return Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Continue(()))
                 }
             };
             entries.push(entry);
-            Ok::<_, std::convert::Infallible>(Action::Continue)
+            Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Continue(()))
         })?;
 
     *files_changed = entries.len() as u32;
@@ -574,9 +574,9 @@ fn count_lines(data: &[u8]) -> u32 {
 /// used; no `git` subprocess is spawned.
 pub fn discover_repo(path: &std::path::Path) -> Option<std::path::PathBuf> {
     let repo = gix::discover(path).ok()?;
-    // `work_dir()` is `None` for bare repos — fall back to the git directory.
+    // `workdir()` is `None` for bare repos — fall back to the git directory.
     Some(
-        repo.work_dir()
+        repo.workdir()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| repo.git_dir().to_path_buf()),
     )

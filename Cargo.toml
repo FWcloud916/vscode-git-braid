@@ -15,7 +15,7 @@ repository   = "https://github.com/TBD/vscode-git-braid"
 
 [workspace.dependencies]
 # Core git reading — pure Rust, high-perf log walk (plan §3.3)
-gix          = { version = "0.70", default-features = false, features = ["max-performance-safe", "revision", "blob-diff"] }
+gix          = { version = "0.85", default-features = false, features = ["max-performance-safe", "revision", "blob-diff", "sha1"] }
 
 # Data structures
 smallvec = { version = "1", features = ["union", "const_generics"] }

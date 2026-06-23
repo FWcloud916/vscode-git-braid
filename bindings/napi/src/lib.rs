@@ -146,7 +146,7 @@ fn collect_diff_files(
     files: &mut Vec<FileChange>,
 ) -> napi::Result<()> {
     use gix::bstr::ByteSlice;
-    use gix::object::tree::diff::{Action, Change};
+    use gix::object::tree::diff::Change;
 
     lhs_tree
         .changes()
@@ -181,11 +181,11 @@ fn collect_diff_files(
                 },
                 // Rewrites are disabled — this arm is unreachable in practice.
                 Change::Rewrite { .. } => {
-                    return Ok::<_, std::convert::Infallible>(Action::Continue)
+                    return Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Continue(()))
                 }
             };
             files.push(fc);
-            Ok::<_, std::convert::Infallible>(Action::Continue)
+            Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Continue(()))
         })
         .map_err(|e| napi::Error::from_reason(format!("tree diff: {e}")))?;
     Ok(())
@@ -218,18 +218,28 @@ pub fn get_commit_detail(repo_path: String, oid_hex: String) -> napi::Result<Com
         .decode()
         .map_err(|e| napi::Error::from_reason(format!("decode commit: {e}")))?;
 
-    let author = data.author();
-    let committer = data.committer();
+    let author = data
+        .author()
+        .map_err(|e| napi::Error::from_reason(format!("decode author: {e}")))?;
+    let committer = data
+        .committer()
+        .map_err(|e| napi::Error::from_reason(format!("decode committer: {e}")))?;
 
     // Collect metadata as owned values before the tree-diff borrows.
     let detail_oid = oid.to_hex().to_string();
     let detail_parents: Vec<String> = data.parents().map(|p| p.to_hex().to_string()).collect();
     let detail_author_name = author.name.to_str_lossy().into_owned();
     let detail_author_email = author.email.to_str_lossy().into_owned();
-    let detail_author_time = author.time.seconds as f64;
+    let detail_author_time = author
+        .time()
+        .map_err(|e| napi::Error::from_reason(format!("decode author time: {e}")))?
+        .seconds as f64;
     let detail_committer_name = committer.name.to_str_lossy().into_owned();
     let detail_committer_email = committer.email.to_str_lossy().into_owned();
-    let detail_commit_time = committer.time.seconds as f64;
+    let detail_commit_time = committer
+        .time()
+        .map_err(|e| napi::Error::from_reason(format!("decode committer time: {e}")))?
+        .seconds as f64;
     let detail_message = data.message.to_str_lossy().into_owned();
 
     // Collect the first parent OID while `data` is still alive (ObjectId is Copy).
