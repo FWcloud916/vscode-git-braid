@@ -9,6 +9,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-06-23
+
+### Added
+- **Status-bar open button** — a persistent `$(git-branch) Git Braid` item in
+  the VS Code status bar (bottom-left) that opens the graph from any context;
+  single-repo workspaces open directly with no picker.
+- **Editor tab icon** — the Git Braid panel tab now shows `media/icon.png`
+  instead of the generic file icon, making it easy to identify in multi-tab layouts.
+- **Startup activation** — extension now activates on `onStartupFinished` so the
+  status-bar button is visible from the first window without needing to run a command first.
+
+## [0.1.1] — 2026-06-23
+
+### Added
+- **Graph toolbar** — branch switcher dropdown (searchable, with `✓`/`★` glyphs),
+  remote toggle, fetch (`git fetch --all --prune`), and refresh buttons.
+- **Ref rendering** — branch/tag icons on commit chips; local+remote refs collapsed
+  into a single chip with a remote-mark dot.
+- **Auto-refresh** — `FileSystemWatcher` debounces on HEAD/refs/packed-refs (300 ms)
+  and reloads the graph on local git changes.
+- `web/ui/branchDropdown.ts` — standalone searchable branch dropdown component
+  replacing the native `<select>`; keyboard-navigable, CSP-safe.
+
 ## [0.1.0] — 2026-06-23 (pre-release)
 
 ### Added
@@ -30,5 +53,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Initial project scaffold: Rust workspace, TypeScript extension host, webview
   renderer, CI workflows, ADRs, and spec documentation.
 
-[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/FWcloud916/vscode-git-braid/releases/tag/v0.1.0

@@ -2,7 +2,7 @@
   "name": "git-braid",
   "displayName": "Git Braid",
   "description": "High-performance, AI-assisted git graph visualisation for VS Code",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "FWCloud916",
   "license": "MIT",
   "packageManager": "pnpm@11.8.0",
