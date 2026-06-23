@@ -52,24 +52,24 @@ Two core differentiators:
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────────┐
 │  Webview (Browser — Canvas virtualised renderer)          │
 │  web/renderer/canvas.ts · web/index.ts                    │
-└───────────────▲──────────────────┬───────────────────────┘
+└───────────────▲───────────────────┬───────────────────────┘
                 │ binary ArrayBuffer│ postMessage (user actions)
-┌───────────────┴──────────────────▼───────────────────────┐
+┌───────────────┴───────────────────▼───────────────────────┐
 │  Extension Host (Node.js / TypeScript)                    │
 │  src/extension.ts · src/webviewBridge.ts                  │
 │  src/gitActions.ts (write ops) · src/ai/provider.ts       │
-└───────────────▲──────────────────┬───────────────────────┘
+└───────────────▲───────────────────┬───────────────────────┘
                 │ napi-rs FFI       │ child_process (git CLI)
-┌───────────────┴──────────┐  ┌────▼──────────────────────┐
+┌───────────────┴───────────┐  ┌────▼──────────────────────┐
 │  Rust core (native addon) │  │  git CLI (write ops only) │
 │  crates/core/             │  │  checkout · merge · …     │
-│  · walk.rs  (gitoxide)   │  └───────────────────────────┘
-│  · layout.rs (pure fn)   │
-│  · serialize.rs (binary) │
-└──────────────────────────┘
+│  · walk.rs  (gitoxide)    │  └───────────────────────────┘
+│  · layout.rs (pure fn)    │
+│  · serialize.rs (binary)  │
+└───────────────────────────┘
 ```
 
 **Read/write split** (key design decision): the hot read path (log walk +
