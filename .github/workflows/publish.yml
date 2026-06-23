@@ -89,9 +89,7 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           pnpm exec vsce publish \
-            --target ${{ matrix.platform.vsceTarget }} \
             --pre-release \
-            --no-dependencies \
             --packagePath git-braid-${{ matrix.platform.vsceTarget }}.vsix
 
       # Keep the .vsix as a release artifact (optional but useful for debugging).

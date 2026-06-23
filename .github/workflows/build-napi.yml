@@ -29,22 +29,22 @@ jobs:
           - host: macos-latest
             target: aarch64-apple-darwin
             build: |
-              pnpm --filter @git-braid/native build -- --target aarch64-apple-darwin
+              pnpm --filter @git-braid/native exec napi build --platform --release --dts _napi.d.ts.tmp --target aarch64-apple-darwin
 
           - host: macos-latest
             target: x86_64-apple-darwin
             build: |
-              pnpm --filter @git-braid/native build -- --target x86_64-apple-darwin
+              pnpm --filter @git-braid/native exec napi build --platform --release --dts _napi.d.ts.tmp --target x86_64-apple-darwin
 
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             build: |
-              pnpm --filter @git-braid/native build -- --target x86_64-unknown-linux-gnu
+              pnpm --filter @git-braid/native exec napi build --platform --release --dts _napi.d.ts.tmp --target x86_64-unknown-linux-gnu
 
           - host: windows-latest
             target: x86_64-pc-windows-msvc
             build: |
-              pnpm --filter @git-braid/native build -- --target x86_64-pc-windows-msvc
+              pnpm --filter @git-braid/native exec napi build --platform --release --dts _napi.d.ts.tmp --target x86_64-pc-windows-msvc
 
     steps:
       - uses: actions/checkout@v4
