@@ -9,6 +9,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-07-01
+
+### Changed
+- **Expanded graph lane palette from 8 to 16 colours** — adds amber, lime,
+  teal, sky, indigo, violet, magenta, and rose at palette indices 8–15,
+  using the same saturation and lightness band as the original 8 colours.
+  Repositories with more than 8 concurrent branches now cycle through
+  twice as many distinct colours before repeating. Existing graphs are
+  visually unchanged (indices 0–7 are preserved).
+
 ## [0.2.1] — 2026-06-23
 
 ### Fixed
@@ -68,7 +78,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Initial project scaffold: Rust workspace, TypeScript extension host, webview
   renderer, CI workflows, ADRs, and spec documentation.
 
-[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.1...v0.1.2
