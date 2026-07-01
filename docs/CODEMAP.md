@@ -136,7 +136,7 @@ Each file with its purpose, layer, and key exported symbols.
 **Layer:** Rust core
 **Purpose:** Pure graph layout engine — assigns lanes and colours to commits, produces line segments for the gap between rows.
 **Contents:**
-- `PALETTE_SIZE: u32 = 8` — number of colours (must stay in sync with `web/renderer/canvas.ts PALETTE`).
+- `PALETTE_SIZE: u32 = 16` — number of colours (must stay in sync with `web/renderer/canvas.ts PALETTE`).
 - `layout(commits: &[CommitIn], boundary: Option<BoundaryState>) -> (Vec<RowLayout>, BoundaryState)` — the single public entry point.
 - `LayoutState` — internal mutable working state: `lanes` (active-lane vector), `waiting_index` (OID → lane indices), `next_color`.
 - Single-pass O(n · L) top-down scan. Eager convergence for invariant 5.
@@ -343,7 +343,7 @@ Each file with its purpose, layer, and key exported symbols.
 **Layer:** Webview
 **Purpose:** Canvas-based virtualised commit graph renderer. Only the visible window + overscan is painted.
 **Contents:**
-- `PALETTE` — 8 CSS colour strings (matches `PALETTE_SIZE` in Rust `layout.rs`).
+- `PALETTE` — 16 CSS colour strings (matches `PALETTE_SIZE` in Rust `layout.rs`).
 - Constants: `ROW_HEIGHT = 24`, `LANE_WIDTH = 14`, `PAD_X = 12`, `NODE_RADIUS = 4`.
 - Column widths: `COL_DATE_WIDTH = 150`, `COL_AUTHOR_WIDTH = 120`, `COL_COMMIT_WIDTH = 80`. Exported for header alignment.
 - `CanvasRenderer` class:

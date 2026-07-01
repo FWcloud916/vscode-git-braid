@@ -47,7 +47,7 @@ use std::collections::HashMap;
 /// This gives deterministic, rotation-based colour assignment (spec §8).
 ///
 /// Must stay in sync with the `PALETTE` array in `web/renderer/canvas.ts`.
-pub const PALETTE_SIZE: u32 = 8;
+pub const PALETTE_SIZE: u32 = 16;
 
 // ─── Internal working state ───────────────────────────────────────────────────
 

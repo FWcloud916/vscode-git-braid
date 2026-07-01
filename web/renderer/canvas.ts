@@ -77,14 +77,22 @@ if (
 
 /** Colour palette — index matches `ColorId` from Rust `model.rs`. */
 export const PALETTE: readonly string[] = [
-  "#6A9FE6", // 0 — blue
-  "#E6886A", // 1 — orange
-  "#6AE699", // 2 — green
-  "#E66A9F", // 3 — pink
-  "#9F6AE6", // 4 — purple
-  "#E6D46A", // 5 — yellow
-  "#6AE6E6", // 6 — cyan
-  "#E66A6A", // 7 — red
+  "#6A9FE6", // 0  — blue
+  "#E6886A", // 1  — orange
+  "#6AE699", // 2  — green
+  "#E66A9F", // 3  — pink
+  "#9F6AE6", // 4  — purple
+  "#E6D46A", // 5  — yellow
+  "#6AE6E6", // 6  — cyan
+  "#E66A6A", // 7  — red
+  "#E5AE6C", // 8  — amber
+  "#A8E56C", // 9  — lime
+  "#6CE5BE", // 10 — teal
+  "#6CC3E5", // 11 — sky
+  "#6C6CE5", // 12 — indigo
+  "#CD6CE5", // 13 — violet
+  "#E56CC7", // 14 — magenta
+  "#E56C86", // 15 — rose
 ] as const;
 
 /** Pixels per commit row (height of one row in the virtual list). */
