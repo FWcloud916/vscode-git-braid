@@ -9,6 +9,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-07-01
+
+### Changed
+- **Ref chips now use the commit's lane colour** instead of a fixed colour
+  per ref kind (local branch, remote branch, HEAD, stash), so a branch chip
+  visually matches the graph line it's attached to. Tags keep a fixed
+  colour, chosen outside the 16-colour lane palette so a tag is never
+  mistaken for a lane.
+- **Ref kind is now shown via icon** rather than colour: remote branches get
+  a fetch/download glyph and stashes get a stacked-bars glyph, alongside the
+  existing tag and local-branch/HEAD icons.
+- **Chip layout polish** — solid separators now divide the icon from the
+  label, and the label from the new cloud icon marking a remote-tracked
+  branch (replacing the previous plain dot).
+
 ## [0.2.2] — 2026-07-01
 
 ### Changed
@@ -78,7 +93,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Initial project scaffold: Rust workspace, TypeScript extension host, webview
   renderer, CI workflows, ADRs, and spec documentation.
 
-[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.1.2...v0.2.0
