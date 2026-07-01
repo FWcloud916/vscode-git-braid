@@ -43,6 +43,7 @@ import {
   REF_KIND_LOCAL_BRANCH,
   REF_KIND_REMOTE_BRANCH,
   REF_KIND_TAG,
+  REF_KIND_STASH,
 } from "./decode";
 
 // Polyfill roundRect for environments that don't have it (e.g. older jsdom in
@@ -95,6 +96,13 @@ export const PALETTE: readonly string[] = [
   "#E56C86", // 15 — rose
 ] as const;
 
+/**
+ * Fixed colour for tag chips. Deliberately kept outside `PALETTE` so a tag
+ * is never mistaken for a lane colour — branch/HEAD/stash chips take their
+ * colour from the commit's lane instead (see `refChipColor`).
+ */
+const TAG_COLOR = "#C9A227"; // dark gold — distinct from all 16 palette entries
+
 /** Pixels per commit row (height of one row in the virtual list). */
 export const ROW_HEIGHT = 24;
 
@@ -123,16 +131,14 @@ const OVERSCAN = 8;
 /** How many unloaded rows from the bottom trigger `onNeedMore`. */
 const PREFETCH_THRESHOLD = 50;
 
-/** Return the chip colour for a given RefKind (matches decode.ts REF_KIND_*). */
-function refChipColor(kind: number): string {
-  switch (kind) {
-    case REF_KIND_HEAD:          return "#E6D46A"; // HEAD — yellow
-    case REF_KIND_LOCAL_BRANCH:  return "#6AE699"; // LocalBranch — green
-    case REF_KIND_TAG:           return "#E6886A"; // Tag — orange
-    case REF_KIND_REMOTE_BRANCH: return "#9F6AE6"; // RemoteBranch — purple
-    case 4:                      return "#E66A9F"; // Stash — pink
-    default:                     return "#6A9FE6";
-  }
+/**
+ * Return the chip colour for a ref of the given kind, given the colour of
+ * the lane its commit sits on. Tags always use the fixed `TAG_COLOR`; every
+ * other kind (branch, HEAD, stash) inherits the lane colour so the chip
+ * matches the graph line it's attached to.
+ */
+function refChipColor(kind: number, laneColor: string): string {
+  return kind === REF_KIND_TAG ? TAG_COLOR : laneColor;
 }
 
 // ── DisplayRef — merged chips for the canvas ──────────────────────────────────
@@ -162,9 +168,9 @@ interface DisplayRef {
  * Collapse `DecodedRef[]` for one commit into display chips.
  *
  * Rules:
- * - Local branch `X` and remote `<remote>/X` → single green chip `X` with a
- *   remote mark listing each remote that tracks it.
- * - Remote-only branch (no matching local) → its own purple chip.
+ * - Local branch `X` and remote `<remote>/X` → single chip `X` (coloured by
+ *   the commit's lane) with a remote mark listing each remote that tracks it.
+ * - Remote-only branch (no matching local) → its own lane-coloured chip.
  * - HEAD merges into the local branch chip (or stays alone if detached).
  * - Tags and stash are never merged.
  * - Sort order in the output: LocalBranch, Tag, RemoteBranch, Stash.
@@ -219,8 +225,8 @@ export function buildDisplayRefs(refs: DecodedRef[]): DisplayRef[] {
 
   // ── Stash (kind=4).
   for (const ref of refs) {
-    if (ref.kind === 4) {
-      result.push({ label: ref.name, kind: 4, remotes: [] });
+    if (ref.kind === REF_KIND_STASH) {
+      result.push({ label: ref.name, kind: REF_KIND_STASH, remotes: [] });
     }
   }
 
@@ -269,8 +275,37 @@ function drawRefIcon(
     ctx.beginPath();
     ctx.arc(tx + 1.5, ty + h / 2, 0.8, 0, Math.PI * 2);
     ctx.fill();
+  } else if (kind === REF_KIND_REMOTE_BRANCH) {
+    // Remote branch icon: a downward arrow into a tray (fetch/download glyph),
+    // distinct from the local-branch fork so remotes read at a glance even
+    // though the chip colour now comes from the lane, not the ref kind.
+    const bx = x + 1, by = y;
+    ctx.beginPath();
+    ctx.moveTo(bx + 2, by - 3);
+    ctx.lineTo(bx + 2, by + 1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(bx, by - 1);
+    ctx.lineTo(bx + 2, by + 1);
+    ctx.lineTo(bx + 4, by - 1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(bx - 1, by + 3);
+    ctx.lineTo(bx + 5, by + 3);
+    ctx.stroke();
+  } else if (kind === REF_KIND_STASH) {
+    // Stash icon: stacked horizontal bars (a small "layers" glyph).
+    const bx = x, by = y;
+    ctx.beginPath();
+    ctx.moveTo(bx, by - 3);
+    ctx.lineTo(bx + 6, by - 3);
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx + 6, by);
+    ctx.moveTo(bx, by + 3);
+    ctx.lineTo(bx + 6, by + 3);
+    ctx.stroke();
   } else {
-    // Branch/remote/stash/HEAD icon: a simple fork glyph (two-segment branch).
+    // Local branch/HEAD icon: a simple fork glyph (two-segment branch).
     //   ── stem up (vertical from mid)
     //   └── branch off to the right at top
     const bx = x + 1, by = y;
@@ -296,18 +331,35 @@ function drawRefIcon(
   ctx.restore();
 }
 
-/** Draw a small filled "cloud/remote" dot at the right edge of a chip. */
+/** Width of the small cloud icon marking a remote-tracked branch, in pixels. */
+const REMOTE_ICON_W = 8;
+
+/**
+ * Draw a small cloud icon marking a remote-tracked branch, left-aligned at
+ * `x` and vertically centred on `y`. Built from three overlapping filled
+ * circles plus a base rectangle (no stroke — a filled blob reads fine at
+ * this size and avoids seams between the arcs).
+ */
 function drawRemoteMark(
   ctx: CanvasRenderingContext2D,
-  chipRight: number,
+  x: number,
   y: number,
   color: string,
 ): void {
-  // A 3-px filled circle to the right of the chip text, inside the chip border.
   ctx.save();
   ctx.fillStyle = color;
+  const cx = x + REMOTE_ICON_W / 2;
   ctx.beginPath();
-  ctx.arc(chipRight - 5, y, 2.5, 0, Math.PI * 2);
+  ctx.arc(cx - 2.5, y + 0.5, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, y - 0.8, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + 2.5, y + 0.5, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.rect(cx - 3.5, y + 0.3, 7, 1.8);
   ctx.fill();
   ctx.restore();
 }
@@ -727,7 +779,7 @@ export class CanvasRenderer {
       if ((row.refs ?? []).some(r => r.kind === REF_KIND_HEAD)) {
         this._ctx.beginPath();
         this._ctx.arc(x, y, NODE_RADIUS + 3, 0, Math.PI * 2);
-        this._ctx.strokeStyle = "#E6D46A"; // HEAD yellow — matches refChipColor(3)
+        this._ctx.strokeStyle = "#E6D46A"; // HEAD yellow — fixed indicator colour, independent of lane/chip colour
         this._ctx.lineWidth = 1.5;
         this._ctx.stroke();
       }
@@ -745,12 +797,13 @@ export class CanvasRenderer {
       // Build display-level chips: merge local+remote branch pairs, add icons.
       const displayRefs = buildDisplayRefs(row.refs ?? []);
       for (const dref of displayRefs) {
-        const chipColor = refChipColor(dref.kind);
+        const chipColor = refChipColor(dref.kind, color);
         this._ctx.font = "10px monospace";
         const tw = this._ctx.measureText(dref.label).width;
-        // Width = icon box + label + right padding + (remote mark space if needed).
-        const remotePad = dref.remotes.length > 0 ? 12 : 0;
-        const chipW = CHIP_ICON_W + tw + 6 + remotePad;
+        // Width = icon box + gap + separator + gap + label + right padding
+        // + (gap + separator + gap + remote cloud icon + padding, if tracked).
+        const remotePad = dref.remotes.length > 0 ? 15 : 0;
+        const chipW = CHIP_ICON_W + tw + 13 + remotePad;
         const chipH = 14;
         const chipY = y - chipH / 2;
 
@@ -767,18 +820,37 @@ export class CanvasRenderer {
         this._ctx.stroke();
 
         // Kind icon.
-        drawRefIcon(this._ctx, dref.kind, tx + 2, y, chipColor);
+        drawRefIcon(this._ctx, dref.kind, tx + 4, y, chipColor);
+
+        // Separator between icon and label — solid line, with a gap on
+        // each side so it doesn't touch the icon or the text.
+        const sepX = tx + CHIP_ICON_W + 4;
+        this._ctx.beginPath();
+        this._ctx.moveTo(sepX, chipY + 3);
+        this._ctx.lineTo(sepX, chipY + chipH - 2);
+        this._ctx.strokeStyle = chipColor;
+        this._ctx.lineWidth = 0.8;
+        this._ctx.stroke();
 
         // Label text.
         this._ctx.fillStyle = chipColor;
-        this._ctx.fillText(dref.label, tx + CHIP_ICON_W + 1, y + 4);
+        this._ctx.fillText(dref.label, sepX + 4, y + 4);
 
-        // Remote tracking mark (filled dot at right edge).
+        // Remote tracking mark: a separator (same style as the icon/label one)
+        // followed by a small cloud icon, both with a gap so nothing touches.
         if (dref.remotes.length > 0) {
-          drawRemoteMark(this._ctx, tx + chipW, y, chipColor);
+          const remoteSepX = sepX + 4 + tw + 3;
+          this._ctx.beginPath();
+          this._ctx.moveTo(remoteSepX, chipY + 2);
+          this._ctx.lineTo(remoteSepX, chipY + chipH - 2);
+          this._ctx.strokeStyle = chipColor;
+          this._ctx.lineWidth = 0.8;
+          this._ctx.stroke();
+
+          drawRemoteMark(this._ctx, remoteSepX + 5, y, chipColor);
         }
 
-        tx += chipW + 4;
+        tx += chipW + 5;
       }
 
       // Subject text (after chips, clipped to descRight).
