@@ -35,11 +35,9 @@ pnpm run build
 
 # 4. Run Rust tests
 cargo test --workspace
-#    Golden tests are #[ignore] until M1 — showing as "ignored" is correct.
-
 # 5. Check Rust
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings -A clippy::todo
+cargo clippy --workspace --all-targets -- -D warnings
 
 # 6. Build native addon (for napi work)
 pnpm run build:napi:debug
@@ -153,7 +151,7 @@ chore/<name>     — tooling / build
 Before requesting review, confirm all items are green:
 
 - [ ] `cargo fmt --all -- --check` passes
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings -A clippy::todo` passes
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes
 - [ ] `cargo test --workspace` passes (ignored tests expected)
 - [ ] `pnpm run typecheck` passes (both `tsconfig.json` and `tsconfig.web.json`)
 - [ ] `pnpm run lint` passes

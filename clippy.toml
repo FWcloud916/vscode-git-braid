@@ -1,6 +1,6 @@
 # Clippy configuration for Git Braid.
-# Run: cargo clippy --all-targets -- -D warnings
-
-# Allow `todo!()` in stubs — all stubs are tracked by milestone in PROGRESS.md.
-# Remove this once M0 and M1 are complete.
-# (Until then, this suppresses `clippy::todo` from the default deny list.)
+# Run: cargo clippy --workspace --all-targets -- -D warnings
+#
+# No overrides — the default deny list applies.
+# (The former `-A clippy::todo` allowance was removed once the last `todo!()`
+# stub was implemented; do not reintroduce it without a tracked reason.)

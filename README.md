@@ -82,7 +82,7 @@ cargo test --workspace
 
 # Check Rust formatting + lints
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings -A clippy::todo
+cargo clippy --workspace --all-targets -- -D warnings
 
 # Type-check TypeScript
 pnpm run typecheck

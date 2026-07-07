@@ -1,10 +1,9 @@
 //! Golden tests for the layout engine.
 //!
 //! Each test encodes a fixed DAG and the expected output from `docs/specs/layout-spec.md §9`.
-//! Tests are marked `#[ignore]` until the layout engine is implemented (M1).
 //!
-//! To run once implemented:
-//!   cargo test --package git-braid-core -- --ignored
+//! Run with the rest of the suite:
+//!   cargo test --package git-braid-core
 
 use git_braid_core::model::{ColorId, CommitIn, RowFlags, RowLayout, SegKind, Segment};
 use smallvec::smallvec;

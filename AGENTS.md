@@ -11,7 +11,8 @@ A VS Code extension that visualises git history. Two differentiators:
 1. **Performance on large repos** — Rust core (gitoxide) + Canvas virtualised renderer.
 2. **AI-assisted history** — semantic search, PR/release-notes generation, conflict context.
 
-Current phase: **Phase 0 / M0** — Rust core log-walk stub exists; nothing computes yet.
+Current phase: see **[PROGRESS.md](./PROGRESS.md)** — always the live status; do not
+trust phase claims hardcoded elsewhere.
 
 ---
 
@@ -71,9 +72,9 @@ entry for every core file with its purpose, layer, and key symbols, plus
 ```bash
 # Rust
 cargo build --workspace
-cargo test --workspace                     # golden tests are #[ignore] — that's expected
+cargo test --workspace
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings -A clippy::todo
+cargo clippy --workspace --all-targets -- -D warnings
 
 # TypeScript
 pnpm install
@@ -131,6 +132,6 @@ gh api repos/<owner>/<repo>/git/ref/heads/<branch> --jq '.object.sha'
 
 ## napi prebuild note
 
-The `.node` native addon must be prebuilt for all 4 targets in CI *early* (M1, not at
-release time). This is called out as a top risk in the project plan. The CI workflow is at
-`.github/workflows/build-napi.yml`. Validate it by M1 — don't defer.
+The `.node` native addon is prebuilt for all 4 targets in CI — the workflow lives at
+`.github/workflows/build-napi.yml`. When adding a target or touching the napi surface,
+keep that workflow green; packaging (`pnpm run package`) vendors the release build.

@@ -30,6 +30,7 @@
 |----------|-------------|
 | [guides/spec-template.md](./guides/spec-template.md) | Template for writing new System Contract specs |
 | [guides/doc-conventions.md](./guides/doc-conventions.md) | rustdoc / TSDoc rules, doc language policy, when to write an ADR vs spec |
+| [coding-style.md](./coding-style.md) | Linter-enforced rules for both toolchains (ESLint/Prettier, rustfmt/clippy) + pre-merge commands |
 
 ---
 
