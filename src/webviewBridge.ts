@@ -37,7 +37,7 @@ import * as vscode from "vscode";
 import { getGraphBatch, getCommitDetail, findCommits, listBranches, type CommitDetail, type FindMatch } from "@git-braid/native";
 import { buildDiffUri } from "./diffProvider";
 import {
-  checkout, createBranch, deleteBranch, createTag, deleteTag,
+  checkout, checkoutRemote, createBranch, deleteBranch, createTag, deleteTag,
   merge, rebase, cherryPick, revert,
   resetSoft, resetMixed, resetHard,
   stashApply, stashPop, stashDrop,
@@ -93,6 +93,10 @@ export type GitActionOp =
 
 /** A ref descriptor included with an action request. */
 interface ActionRef { name: string; kind: number }
+
+/** `RefKind` numeric values, mirroring `crates/core/src/model.rs` and `web/renderer/decode.ts`. */
+const REF_KIND_LOCAL_BRANCH = 0;
+const REF_KIND_REMOTE_BRANCH = 1;
 
 /** Messages the webview can send to the extension host. */
 type WebviewMessage =
@@ -440,11 +444,18 @@ export class WebviewBridge implements vscode.Disposable {
     try {
       switch (msg.op) {
         case "checkout": {
-          // Prefer a local branch name (tracks the branch pointer) over a
-          // detached OID checkout.
-          const branchRef = msg.refs.find(r => r.kind === 0 /* LOCAL_BRANCH */);
-          const target = branchRef !== undefined ? branchRef.name : msg.oid;
-          await checkout(target, this._repoPath);
+          // Prefer a local branch name (tracks the branch pointer); next a
+          // remote branch (creates a local tracking branch); otherwise fall
+          // back to a detached OID checkout.
+          const localRef = msg.refs.find(r => r.kind === REF_KIND_LOCAL_BRANCH);
+          const remoteRef = msg.refs.find(r => r.kind === REF_KIND_REMOTE_BRANCH);
+          if (localRef !== undefined) {
+            await checkout(localRef.name, this._repoPath);
+          } else if (remoteRef !== undefined) {
+            await checkoutRemote(remoteRef.name, this._repoPath);
+          } else {
+            await checkout(msg.oid, this._repoPath);
+          }
           break;
         }
 

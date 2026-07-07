@@ -59,6 +59,30 @@ export async function checkout(ref: string, cwd: string): Promise<void> {
   await runGit(["checkout", ref], cwd);
 }
 
+/**
+ * Check out a remote-tracking branch (e.g. "origin/feature") by creating a
+ * local branch that tracks it, then switching to that local branch.
+ *
+ * Uses explicit `--track <remoteRef>` (rather than `git checkout <name>`
+ * DWIM) so multi-remote repos with a same-named branch on two remotes are
+ * unambiguous. If a local branch of the derived name already exists, falls
+ * back to switching to it (matches git's own DWIM behaviour).
+ */
+export async function checkoutRemote(remoteRef: string, cwd: string): Promise<void> {
+  const slash = remoteRef.indexOf("/");
+  const local = slash >= 0 ? remoteRef.slice(slash + 1) : remoteRef;
+  try {
+    await runGit(["checkout", "-b", local, "--track", remoteRef], cwd);
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    if (/already exists/i.test(text)) {
+      await runGit(["checkout", local], cwd);
+      return;
+    }
+    throw err;
+  }
+}
+
 // ── Phase 2 stubs ──────────────────────────────────────────────────────────
 
 export async function createBranch(name: string, from: string, cwd: string): Promise<void> {

@@ -30,7 +30,7 @@
  */
 
 import { CanvasRenderer, PAD_X, COL_DATE_WIDTH, COL_AUTHOR_WIDTH, COL_COMMIT_WIDTH } from "./renderer/canvas";
-import { decodeBatch, REF_KIND_LOCAL_BRANCH, REF_KIND_TAG, REF_KIND_STASH, type DecodedRef } from "./renderer/decode";
+import { decodeBatch, REF_KIND_LOCAL_BRANCH, REF_KIND_REMOTE_BRANCH, REF_KIND_TAG, REF_KIND_STASH, type DecodedRef } from "./renderer/decode";
 import { formatRelative } from "./format";
 import { showContextMenu, type MenuItem } from "./ui/contextMenu";
 import { createBranchDropdown, type BranchDropdownItem } from "./ui/branchDropdown";
@@ -174,6 +174,7 @@ type GitActionOp =
 function buildMenuItems(info: { oidHex: string; refs: DecodedRef[] }): MenuItem[] {
   const items: MenuItem[] = [];
   const localBranches = info.refs.filter(r => r.kind === REF_KIND_LOCAL_BRANCH);
+  const remoteBranches = info.refs.filter(r => r.kind === REF_KIND_REMOTE_BRANCH);
   const tags = info.refs.filter(r => r.kind === REF_KIND_TAG);
   const stashes = info.refs.filter(r => r.kind === REF_KIND_STASH);
 
@@ -199,19 +200,33 @@ function buildMenuItems(info: { oidHex: string; refs: DecodedRef[] }): MenuItem[
   items.push({ separator: true });
 
   // ── Checkout ────────────────────────────────────────────────────────────
-  // One "Checkout <name>" per local branch (by branch-pointer, not detached),
-  // or a generic "Checkout this commit" (detached HEAD) when none exist.
-  if (localBranches.length > 0) {
-    for (const b of localBranches) {
-      items.push({
-        label: `Checkout ${b.name}`,
-        action: () => postToHost({
-          type: "action", op: "checkout" as GitActionOp,
-          oid: info.oidHex, refs: [{ name: b.name, kind: b.kind }],
-        }),
-      });
-    }
-  } else {
+  // One "Checkout <name>" per local branch (by branch-pointer, not detached);
+  // one "Checkout <remote>/<name>" per remote branch not already covered by a
+  // same-named local branch (creates a local tracking branch); or a generic
+  // "Checkout this commit" (detached HEAD) when no branch sits here at all.
+  for (const b of localBranches) {
+    items.push({
+      label: `Checkout ${b.name}`,
+      action: () => postToHost({
+        type: "action", op: "checkout" as GitActionOp,
+        oid: info.oidHex, refs: [{ name: b.name, kind: b.kind }],
+      }),
+    });
+  }
+  const localNames = new Set(localBranches.map(b => b.name));
+  for (const rb of remoteBranches) {
+    const slash = rb.name.indexOf("/");
+    const shortName = slash >= 0 ? rb.name.slice(slash + 1) : rb.name;
+    if (localNames.has(shortName)) continue;
+    items.push({
+      label: `Checkout ${rb.name}`,
+      action: () => postToHost({
+        type: "action", op: "checkout" as GitActionOp,
+        oid: info.oidHex, refs: [{ name: rb.name, kind: rb.kind }],
+      }),
+    });
+  }
+  if (localBranches.length === 0 && remoteBranches.length === 0) {
     items.push({
       label: "Checkout this commit",
       action: () => postToHost({
