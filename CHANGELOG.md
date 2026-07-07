@@ -9,6 +9,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-07-07
+
+### Added
+- **Checkout remote branches from the graph context menu** — right-clicking a
+  commit whose only ref is a remote branch (e.g. `origin/feature-x`) now
+  offers `Checkout origin/feature-x`, which creates a local tracking branch
+  and switches to it. Local-branch and detached-HEAD checkout are unchanged.
+
 ## [0.2.3] — 2026-07-01
 
 ### Changed
@@ -93,7 +101,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Initial project scaffold: Rust workspace, TypeScript extension host, webview
   renderer, CI workflows, ADRs, and spec documentation.
 
-[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.0...v0.2.1
