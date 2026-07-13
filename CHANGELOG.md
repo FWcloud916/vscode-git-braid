@@ -9,6 +9,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.5] — 2026-07-13
+
+### Added
+- **Nested/sibling repo discovery** — workspace folders that merely *contain*
+  several unrelated git repos (e.g. a `projects/` folder holding many
+  checkouts) are now discovered, not just folders that are repos themselves.
+  Controlled by the new `gitBraid.repoScanDepth` setting (default 2 levels).
+- **In-panel repo switcher** — a toolbar dropdown lets you switch between
+  discovered repos without going through the command palette.
+
+### Fixed
+- **Dropdown popups no longer close when scrolling their own list** — both
+  the branch dropdown and the new repo dropdown were dismissing themselves
+  on the first scroll tick inside their list, making it impossible to reach
+  items below the fold.
+
 ## [0.2.4] — 2026-07-07
 
 ### Added
@@ -101,7 +117,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Initial project scaffold: Rust workspace, TypeScript extension host, webview
   renderer, CI workflows, ADRs, and spec documentation.
 
-[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/FWcloud916/vscode-git-braid/compare/v0.2.1...v0.2.2
