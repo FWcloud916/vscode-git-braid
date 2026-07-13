@@ -31,7 +31,8 @@
 | Binary serialisation (BRAI v2) | `crates/core/src/serialize.rs` | `encode_batch`, `decode_batch` |
 | Data contracts (types) | `crates/core/src/model.rs` | `CommitIn`, `RowLayout`, `Segment`, `CommitMeta`, `BoundaryState`, `RangeCommit` |
 | napi binding | `bindings/napi/src/lib.rs` | `get_graph_batch`, `get_commit_detail`, `get_blob`, `find_commits`, `list_refs`, `walk_range` |
-| Extension activation | `src/extension.ts` | `activate`, `deactivate`, `resolveRepos`, `pickRepo` |
+| Extension activation | `src/extension.ts` | `activate`, `deactivate`, `resolveRepos`, `pickRepo`, `openRepo` |
+| Nested/sibling repo scan | `src/repoScan.ts` | `collectRepoRoots`, `isRepoRoot`, `listChildDirs` |
 | Host ↔ webview protocol | `src/webviewBridge.ts` | `WebviewBridge` class, `_handleMessage`, `_sendBatch` |
 | Git write operations | `src/gitActions.ts` | `checkout`, `merge`, `rebase`, `createBranch`, `deleteBranch`, … |
 | Diff viewer integration | `src/diffProvider.ts` | `GitBraidContentProvider`, `buildDiffUri` |
@@ -44,6 +45,7 @@
 | Date formatting | `web/format.ts` | `formatRelative` |
 | Context menu | `web/ui/contextMenu.ts` | `showContextMenu`, `MenuItem` |
 | Branch dropdown | `web/ui/branchDropdown.ts` | `createBranchDropdown`, `BranchDropdown`, `BranchDropdownItem` |
+| Repo dropdown | `web/ui/repoDropdown.ts` | `createRepoDropdown`, `RepoDropdown`, `RepoDropdownItem` |
 
 ---
 
@@ -65,6 +67,8 @@
 | Change Canvas rendering / colours | `web/renderer/canvas.ts` — `_paint()` |
 | Change context menu items | `web/index.ts` — `buildMenuItems()` |
 | Change toolbar branch dropdown | `web/ui/branchDropdown.ts` — `createBranchDropdown()` |
+| Change toolbar repo dropdown / switching | `web/ui/repoDropdown.ts` — `createRepoDropdown()` **and** `src/extension.ts` `openRepo()` |
+| Change nested/sibling repo discovery | `src/repoScan.ts` — `collectRepoRoots()` + `gitBraid.repoScanDepth` setting |
 | Change graph branch/remote filter | `src/webviewBridge.ts` `_handleMessage` setFilter + `crates/core/src/walk.rs` `WalkOptions` |
 | Add a VS Code setting | `package.json` `contributes.configuration` |
 | Fix a CI / build issue | `.github/workflows/`, `bindings/napi/build.rs` |
@@ -225,9 +229,21 @@ Each file with its purpose, layer, and key exported symbols.
 **Contents:**
 - `activate(context)` — registers five commands: `openGraph`, `selectRepo`, `find`, `generateReleaseNotes`, `clearAiKey`. Registers `GitBraidContentProvider`. Creates a left-aligned `StatusBarItem` (text `$(git-branch) Git Braid`) that runs `gitBraid.openGraph`; always visible from startup via `"activationEvents": ["onStartupFinished"]` in `package.json`.
 - `deactivate()` — disposes the bridge.
-- `resolveRepos()` — maps workspace folders through gitoxide discovery; returns unique repo roots. Exported for reuse by AI command.
+- `resolveRepos()` — `async`. Two passes per workspace folder: upward via `discoverRepo` (gitoxide, folder-is-repo-or-subdir), and downward via `collectRepoRoots` (`repoScan.ts`) up to `gitBraid.repoScanDepth` levels for nested/sibling repos. Returns deduped repo roots. Exported for reuse by AI command. See `docs/adr/0007-nested-repo-scan.md`.
 - `pickRepo(repos)` — single-repo shortcut or QuickPick. Exported for reuse by AI command.
-- `openRepo(context, repoPath)` — disposes old bridge, creates a new `WebviewBridge`.
+- `openRepo(context, repoPath, repos?)` — disposes old bridge, creates a new `WebviewBridge` passing the discovered repo list and a switch callback `(root) => openRepo(context, root)` (re-invoked when the webview's repo dropdown or the `selectRepo` command picks a different repo).
+
+---
+
+#### `repoScan.ts`
+
+**Layer:** Extension host (pure — no `vscode` import, unit-tested via `repoScan.test.ts`)
+**Purpose:** Bounded-depth filesystem scan for nested/sibling git repositories, filling the gap the upward-only `discoverRepo` walk leaves (see `docs/adr/0007-nested-repo-scan.md`).
+**Contents:**
+- `collectRepoRoots(roots, maxDepth, deps)` — dependency-injected scan; stops descending once a directory is identified as a repo; deduplicates by canonical root.
+- `RepoScanDeps` — `{ isRepoRoot(dir), childDirs(dir) }`, injected for testability.
+- `listChildDirs(dir)` — real `fs.readdirSync` implementation; skips `node_modules`, `.git`, dot-dirs, and symlinked directories.
+- `isRepoRoot(dir)` — real implementation; checks for a direct `.git` entry, then resolves the canonical root via `discoverRepo`.
 
 ---
 
@@ -236,8 +252,9 @@ Each file with its purpose, layer, and key exported symbols.
 **Layer:** Extension host
 **Purpose:** Manages the VS Code WebviewPanel and all host ↔ webview message exchange.
 **Contents:**
-- `WebviewBridge` class with `reveal()`, `find()`, `dispose()`. Panel `iconPath` set to `media/icon.png` so the editor tab shows the Git Braid icon.
-- `_handleMessage(message)` — dispatch switch over 6 message types: `ready`, `requestBatch`, `selectCommit`, `openDiff`, `action`, `copy`.
+- `WebviewBridge` class with `reveal()`, `find()`, `dispose()`. Panel `iconPath` set to `media/icon.png` so the editor tab shows the Git Braid icon. Constructor takes `(context, repoPath, repos, onSelectRepo, onDispose)` — `repos` and `onSelectRepo` back the toolbar repo dropdown.
+- `_handleMessage(message)` — dispatch switch over message types: `ready`, `requestBatch`, `selectCommit`, `openDiff`, `action`, `copy`, `setFilter`, `refresh`, `fetch`, `selectRepo`.
+- `_sendConfig()` — posts `dateFormat`, `palette`, `branches`/`currentBranch`, and `repos`/`currentRepo` (repo dropdown data, mapped from the constructor's `repos` list).
 - `_sendBatch(offset, limit)` — calls `getGraphBatch`, slices the Node.js Buffer, posts `ArrayBuffer`.
 - `_sendCommitDetail(oid)` — calls `getCommitDetail`, posts.
 - `_openDiff(filePath, oldOid, newOid, status)` — builds `gitbraid:` URIs, calls `vscode.diff`.
@@ -391,6 +408,17 @@ Each file with its purpose, layer, and key exported symbols.
 - `BranchDropdownItem` — `{ name, kind, isCurrent }` (same shape as `config.branches` payload).
 - `BranchDropdown` — handle returned by the factory: `{ el, setItems, setSelected }`.
 - `createBranchDropdown({ initial, onSelect })` — builds the trigger button and manages the popup lifecycle. The popup contains a `Filter Branches…` input, a "Show All" row, and a scrollable branch list with `✓`/`★` glyphs. Supports `↑/↓/Enter/Escape` keyboard navigation and auto-dismisses on outside-click or scroll. At most one popup open at a time (module-level ref, same idiom as `contextMenu.ts`). All styles are inline; no external assets (CSP-safe).
+
+---
+
+#### `web/ui/repoDropdown.ts`
+
+**Layer:** Webview
+**Purpose:** Repo picker for the graph toolbar (leftmost, ahead of the branch dropdown) — lets the user switch which discovered repo is displayed without the command palette. Modeled directly on `branchDropdown.ts`.
+**Contents:**
+- `RepoDropdownItem` — `{ root, name }` (same shape as `config.repos` payload).
+- `RepoDropdown` — handle returned by the factory: `{ el, setItems, setCurrent }`.
+- `createRepoDropdown({ initial, onSelect })` — same popup/filter/keyboard-nav idiom as `branchDropdown.ts`, minus the "Show All" row and kind/star logic (a repo is always selected; `✓` marks the current one). Selecting a different repo posts `{ type: "selectRepo", root }`; the host recreates the panel for the new repo, so this component doesn't self-update after a selection — a fresh `config` message does that.
 
 ---
 

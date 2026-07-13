@@ -13,7 +13,7 @@
  *   `{ type: "batch", payload: ArrayBuffer }` — BRAI v2 binary batch
  *   `{ type: "commitDetail", detail: CommitDetailPayload }` — single commit detail
  *   `{ type: "findResults", query: string, matches: FindMatchPayload[] }` — search results
- *   `{ type: "config", dateFormat, palette, branches, currentBranch }` — display settings
+ *   `{ type: "config", dateFormat, palette, branches, currentBranch, repos, currentRepo }` — display settings
  *   `{ type: "reload" }` — clear rows and re-request from offset 0 (after write op)
  *   `{ type: "error", message: string }`
  *
@@ -27,6 +27,7 @@
  *   `{ type: "setFilter", includeRemotes: boolean, branch: string | null }` — graph filter
  *   `{ type: "fetch" }` — run git fetch --all --prune
  *   `{ type: "refresh" }` — reload graph
+ *   `{ type: "selectRepo", root: string }` — user picked a different repo in the toolbar dropdown
  */
 
 import { CanvasRenderer, PAD_X, COL_DATE_WIDTH, COL_AUTHOR_WIDTH, COL_COMMIT_WIDTH } from "./renderer/canvas";
@@ -34,6 +35,7 @@ import { decodeBatch, REF_KIND_LOCAL_BRANCH, REF_KIND_REMOTE_BRANCH, REF_KIND_TA
 import { formatRelative } from "./format";
 import { showContextMenu, type MenuItem } from "./ui/contextMenu";
 import { createBranchDropdown, type BranchDropdownItem } from "./ui/branchDropdown";
+import { createRepoDropdown, type RepoDropdownItem } from "./ui/repoDropdown";
 
 // ── VS Code API ────────────────────────────────────────────────────────────────
 
@@ -503,6 +505,17 @@ function init(): void {
   ].join(" ");
   graphWrapper.appendChild(toolbarRow);
 
+  // Repo switcher — leftmost, since the repo is the higher-level selector
+  // above branch/remote filters. Populated by the `config` message; selecting
+  // a different repo asks the host to recreate the panel for it.
+  const repoDropdown = createRepoDropdown({
+    initial: null,
+    onSelect: (root) => {
+      postToHost({ type: "selectRepo", root });
+    },
+  });
+  toolbarRow.appendChild(repoDropdown.el);
+
   // Branch switcher — custom searchable dropdown.
   const branchDropdown = createBranchDropdown({
     initial: toolbarState.branch,
@@ -837,6 +850,14 @@ function init(): void {
         if (branches) {
           branchDropdown.setItems(branches);
           branchDropdown.setSelected(toolbarState.branch);
+        }
+        const repos = message["repos"] as RepoDropdownItem[] | undefined;
+        if (repos) {
+          repoDropdown.setItems(repos);
+        }
+        const currentRepo = message["currentRepo"] as string | undefined;
+        if (currentRepo) {
+          repoDropdown.setCurrent(currentRepo);
         }
         break;
       }

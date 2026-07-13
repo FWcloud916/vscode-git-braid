@@ -3,7 +3,8 @@
  *
  * This module is loaded by VS Code when the extension activates. It:
  * 1. Registers the `gitBraid.openGraph` and `gitBraid.selectRepo` commands.
- * 2. Discovers git repositories from the open workspace folders.
+ * 2. Discovers git repositories from the open workspace folders (both the
+ *    folder itself/its ancestors, and nested/sibling repos beneath it).
  * 3. Presents a repo picker for multi-root workspaces.
  * 4. Creates and manages the Webview panel via WebviewBridge.
  *
@@ -18,34 +19,55 @@ import { WebviewBridge } from "./webviewBridge";
 import { GitBraidContentProvider } from "./diffProvider";
 import { runReleaseNotesCommand } from "./ai/releaseNotesCommand";
 import { discoverRepo } from "@git-braid/native";
+import { collectRepoRoots, isRepoRoot, listChildDirs } from "./repoScan";
 
 let bridge: WebviewBridge | undefined;
 
 // ── Repository discovery ──────────────────────────────────────────────────────
 
 /**
- * Map every open workspace folder through gitoxide's repo-discovery and return
- * the list of unique worktree roots found.
+ * Discover every git repository reachable from the open workspace folders and
+ * return the list of unique worktree roots found.
  *
- * Discovery uses `discoverRepo` (gitoxide, no subprocess) which walks upward
- * from each folder's path until it finds a `.git` directory — so a workspace
- * folder that is a subdirectory of a repo is still found correctly.
- * Duplicates are removed (multiple folders can resolve to the same root).
+ * Two discovery passes run per folder (docs/adr/0007-nested-repo-scan.md):
  *
- * Exported so the AI release-notes command can reuse it without duplicating
- * discovery logic.
+ * 1. **Upward** — `discoverRepo` (gitoxide) walks up from the folder path
+ *    until it finds a `.git` directory, so a workspace folder that is itself
+ *    a subdirectory of a repo is still found correctly.
+ * 2. **Downward** — `collectRepoRoots` scans up to `gitBraid.repoScanDepth`
+ *    levels beneath the folder for nested/sibling repos (e.g. a `projects/`
+ *    folder containing many unrelated checkouts), which the upward walk alone
+ *    cannot see.
+ *
+ * Duplicates are removed (multiple folders, or the two passes, can resolve to
+ * the same root). Exported so the AI release-notes command can reuse it
+ * without duplicating discovery logic.
  */
-export function resolveRepos(): string[] {
+export async function resolveRepos(): Promise<string[]> {
   const folders = vscode.workspace.workspaceFolders ?? [];
+  const maxDepth =
+    vscode.workspace.getConfiguration("gitBraid").get<number>("repoScanDepth") ?? 2;
+
   const seen = new Set<string>();
   const repos: string[] = [];
-  for (const folder of folders) {
-    const root = discoverRepo(folder.uri.fsPath);
+  function add(root: string | null | undefined): void {
     if (root && !seen.has(root)) {
       seen.add(root);
       repos.push(root);
     }
   }
+
+  for (const folder of folders) {
+    const folderPath = folder.uri.fsPath;
+    add(discoverRepo(folderPath));
+    for (const root of collectRepoRoots([folderPath], maxDepth, {
+      isRepoRoot,
+      childDirs: listChildDirs,
+    })) {
+      add(root);
+    }
+  }
+
   return repos;
 }
 
@@ -77,12 +99,32 @@ export async function pickRepo(repos: string[]): Promise<string | undefined> {
  * Dispose any existing bridge panel and open a fresh one for `repoPath`.
  * Using recreate-panel keeps the protocol simple: the webview resets naturally
  * via the `ready` message on each new panel load (no extra `reset` message needed).
+ *
+ * The bridge is given the full discovered repo list (re-resolved on every
+ * open unless the caller already has a fresh one, e.g. the command handlers
+ * below right after their own `resolveRepos()` call) so the webview's
+ * in-panel repo dropdown can offer every repo, not just the one being opened.
+ * Passing `(root) => openRepo(context, root)` as the switch callback lets the
+ * dropdown trigger the same recreate-panel flow used by `gitBraid.selectRepo`.
  */
-function openRepo(context: vscode.ExtensionContext, repoPath: string): void {
+async function openRepo(
+  context: vscode.ExtensionContext,
+  repoPath: string,
+  repos?: string[],
+): Promise<void> {
+  const repoList = repos ?? (await resolveRepos());
   bridge?.dispose();
-  bridge = new WebviewBridge(context, repoPath, () => {
-    bridge = undefined;
-  });
+  bridge = new WebviewBridge(
+    context,
+    repoPath,
+    repoList,
+    (root) => {
+      void openRepo(context, root);
+    },
+    () => {
+      bridge = undefined;
+    },
+  );
 }
 
 // ── Activation ────────────────────────────────────────────────────────────────
@@ -98,7 +140,7 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
-      const repos = resolveRepos();
+      const repos = await resolveRepos();
       if (repos.length === 0) {
         void vscode.window.showErrorMessage(
           "Git Braid: No git repository found in the open workspace folders.",
@@ -108,7 +150,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
       const pick = await pickRepo(repos);
       if (pick) {
-        openRepo(context, pick);
+        await openRepo(context, pick, repos);
       }
     },
   );
@@ -118,7 +160,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const selectRepo = vscode.commands.registerCommand(
     "gitBraid.selectRepo",
     async () => {
-      const repos = resolveRepos();
+      const repos = await resolveRepos();
       if (repos.length === 0) {
         void vscode.window.showInformationMessage(
           "Git Braid: No git repositories found in the open workspace folders.",
@@ -139,7 +181,7 @@ export function activate(context: vscode.ExtensionContext): void {
         matchOnDescription: true,
       });
       if (pick) {
-        openRepo(context, pick.root);
+        await openRepo(context, pick.root, repos);
       }
     },
   );

@@ -1,35 +1,44 @@
 /**
- * Searchable branch dropdown for the graph toolbar.
+ * Repo picker for the graph toolbar.
  *
- * Replaces the native `<select>` branch switcher with a wider, custom popup
- * that includes a live filter input and a scrollable, checkmarked branch list.
+ * Lets the user switch which discovered git repository is displayed without
+ * going through the command palette (`gitBraid.selectRepo`). Modeled directly
+ * on `web/ui/branchDropdown.ts` — same inline-style / CSP-safe / Unicode-glyph
+ * conventions, `position:fixed` popup, filter input, keyboard nav, and
+ * single-popup singleton; see that file for the rationale behind those
+ * choices.
  *
- * # CSP note
- *
- * All styles are inline (`element.style` assignments), which is permitted by
- * the webview's `style-src 'unsafe-inline'` CSP directive. Glyphs are Unicode
- * characters (▾ ✓ ★) — no external images or SVG assets. Consistent with
- * `web/ui/contextMenu.ts`.
+ * Differences from the branch dropdown: there is no "Show All" entry (a repo
+ * is always selected) and no kind/star logic — just a name, a full-path
+ * tooltip, and a `✓` marking the current repo. Selecting a different repo
+ * posts `{ type: "selectRepo", root }` to the host, which recreates the
+ * webview panel for the new repo (docs/adr/0006-repo-discovery-strategy.md
+ * §Decision 2) — so this component does not attempt to update its own
+ * "current" state after a selection; the panel reload does that via a fresh
+ * `config` message.
  */
 
-/** A single item in the dropdown's branch list. */
-export interface BranchDropdownItem {
+/** A single item in the dropdown's repo list. */
+export interface RepoDropdownItem {
+  root: string;
   name: string;
-  kind: number;
-  isCurrent: boolean;
 }
 
-/** Handle returned by {@link createBranchDropdown}. */
-export interface BranchDropdown {
+/** Handle returned by {@link createRepoDropdown}. */
+export interface RepoDropdown {
   /** The trigger button element — append this to the toolbar. */
   el: HTMLElement;
-  /** Replace the branch list. Called when the host pushes `config.branches`. */
-  setItems(items: BranchDropdownItem[]): void;
-  /** Update the label shown on the trigger button without opening the popup. */
-  setSelected(value: string | null): void;
+  /** Replace the repo list. Called when the host pushes `config.repos`. */
+  setItems(items: RepoDropdownItem[]): void;
+  /** Update which repo is marked current, and the trigger label. */
+  setCurrent(root: string): void;
 }
 
-// At most one popup is open at a time (across all dropdown instances).
+// At most one popup is open at a time (shared with branchDropdown would be
+// nicer, but each dropdown module keeps its own singleton — only one popup
+// of any kind is opened at a time in practice since both are triggered by a
+// direct click on their own trigger button, which closes any other popup via
+// the shared document-level dismiss listener pattern).
 let _popup: HTMLElement | null = null;
 
 function _closePopup(): void {
@@ -40,24 +49,26 @@ function _closePopup(): void {
 }
 
 /**
- * Create a searchable branch dropdown.
+ * Create a searchable repo dropdown.
  *
- * @param opts.initial  Initially selected branch name, or `null` for "Show All".
- * @param opts.onSelect Called when the user picks an item. `null` means "Show All".
+ * @param opts.initial  Currently open repo's root path, or `null` before the
+ *   first `config` message arrives.
+ * @param opts.onSelect Called when the user picks a different repo.
  */
-export function createBranchDropdown(opts: {
+export function createRepoDropdown(opts: {
   initial: string | null;
-  onSelect: (value: string | null) => void;
-}): BranchDropdown {
-  let _items: BranchDropdownItem[] = [];
-  let _selected: string | null = opts.initial;
+  onSelect: (root: string) => void;
+}): RepoDropdown {
+  let _items: RepoDropdownItem[] = [];
+  let _current: string | null = opts.initial;
 
   // ── Trigger button ───────────────────────────────────────────────────────────
   const trigger = document.createElement("button");
   trigger.type = "button";
+  trigger.title = "Switch repository";
   trigger.style.cssText = [
     "display:inline-flex; align-items:center; justify-content:space-between;",
-    "min-width:180px; max-width:280px;",
+    "min-width:120px; max-width:220px;",
     "background:var(--vscode-dropdown-background,#3c3c3c);",
     "color:var(--vscode-dropdown-foreground,#ccc);",
     "border:1px solid var(--vscode-dropdown-border,#555);",
@@ -79,12 +90,9 @@ export function createBranchDropdown(opts: {
   trigger.appendChild(triggerChevron);
 
   function _updateLabel(): void {
-    if (_selected === null) {
-      triggerLabel.textContent = "Show All";
-    } else {
-      const item = _items.find((b) => b.name === _selected);
-      triggerLabel.textContent = (item?.isCurrent ? "★ " : "") + _selected;
-    }
+    const item = _items.find((r) => r.root === _current);
+    triggerLabel.textContent = item?.name ?? _current ?? "Select repo…";
+    trigger.title = _current ?? "Switch repository";
   }
   _updateLabel();
 
@@ -105,7 +113,7 @@ export function createBranchDropdown(opts: {
       "color:var(--vscode-foreground,#ccc);",
       "user-select:none;",
       "display:flex; flex-direction:column;",
-      `min-width:${Math.max(220, rect.width)}px; max-width:360px;`,
+      `min-width:${Math.max(220, rect.width)}px; max-width:420px;`,
     ].join(" ");
 
     // Initial position — clamped after appending (once layout runs).
@@ -115,7 +123,7 @@ export function createBranchDropdown(opts: {
     // ── Filter input ─────────────────────────────────────────────────────────
     const filterInput = document.createElement("input");
     filterInput.type = "text";
-    filterInput.placeholder = "Filter Branches…";
+    filterInput.placeholder = "Filter Repositories…";
     filterInput.style.cssText = [
       "width:100%; box-sizing:border-box;",
       "background:var(--vscode-input-background,#3c3c3c);",
@@ -150,9 +158,10 @@ export function createBranchDropdown(opts: {
       }
     }
 
-    function _makeRow(value: string, label: string, isSelected: boolean): HTMLElement {
+    function _makeRow(item: RepoDropdownItem): HTMLElement {
       const row = document.createElement("div");
-      row.dataset["value"] = value;
+      row.dataset["root"] = item.root;
+      row.title = item.root;
       row.style.cssText = [
         "display:flex; align-items:center;",
         "padding:4px 10px; cursor:pointer; white-space:nowrap; overflow:hidden;",
@@ -160,16 +169,23 @@ export function createBranchDropdown(opts: {
 
       // Leading check glyph (fixed width keeps non-checked rows aligned).
       const check = document.createElement("span");
-      check.style.cssText =
-        "display:inline-block; width:14px; flex-shrink:0;";
-      check.textContent = isSelected ? "✓" : "";
+      check.style.cssText = "display:inline-block; width:14px; flex-shrink:0;";
+      check.textContent = item.root === _current ? "✓" : "";
 
       const text = document.createElement("span");
       text.style.cssText = "overflow:hidden; text-overflow:ellipsis;";
-      text.textContent = label;
+      text.textContent = item.name;
+
+      const desc = document.createElement("span");
+      desc.style.cssText = [
+        "margin-left:8px; opacity:0.55; overflow:hidden; text-overflow:ellipsis;",
+        "flex:1; min-width:0;",
+      ].join(" ");
+      desc.textContent = item.root;
 
       row.appendChild(check);
       row.appendChild(text);
+      row.appendChild(desc);
 
       row.addEventListener("mouseover", () => {
         const idx = visibleRows.indexOf(row);
@@ -184,7 +200,7 @@ export function createBranchDropdown(opts: {
       });
       row.addEventListener("click", (e) => {
         e.stopPropagation();
-        _selectValue(value === "" ? null : value);
+        _selectValue(item.root);
       });
 
       return row;
@@ -197,26 +213,20 @@ export function createBranchDropdown(opts: {
 
       const q = query.toLowerCase();
 
-      // "Show All" — always visible.
-      const showAllRow = _makeRow("", "Show All", _selected === null);
-      listEl.appendChild(showAllRow);
-      visibleRows.push(showAllRow);
-
-      let anyBranch = false;
+      let any = false;
       for (const item of _items) {
-        if (q && !item.name.toLowerCase().includes(q)) continue;
-        const label = (item.isCurrent ? "★ " : "") + item.name;
-        const row = _makeRow(item.name, label, _selected === item.name);
+        if (q && !item.name.toLowerCase().includes(q) && !item.root.toLowerCase().includes(q)) continue;
+        const row = _makeRow(item);
         listEl.appendChild(row);
         visibleRows.push(row);
-        anyBranch = true;
+        any = true;
       }
 
-      if (!anyBranch && q) {
+      if (!any) {
         const empty = document.createElement("div");
         empty.style.cssText =
           "padding:6px 10px; opacity:0.5; font-style:italic; user-select:none;";
-        empty.textContent = "No branches match";
+        empty.textContent = query ? "No repos match" : "No repos discovered";
         listEl.appendChild(empty);
       }
     }
@@ -256,18 +266,20 @@ export function createBranchDropdown(opts: {
       } else if (e.key === "Enter") {
         e.preventDefault();
         if (highlightIdx >= 0 && highlightIdx < visibleRows.length) {
-          const v = visibleRows[highlightIdx]!.dataset["value"] ?? "";
-          _selectValue(v === "" ? null : v);
+          const root = visibleRows[highlightIdx]!.dataset["root"];
+          if (root) _selectValue(root);
         }
       }
       // Escape is handled by the document-level dismiss listener below.
     });
 
     // ── Select ───────────────────────────────────────────────────────────────
-    function _selectValue(value: string | null): void {
-      _selected = value;
-      _updateLabel();
-      opts.onSelect(value);
+    function _selectValue(root: string): void {
+      if (root === _current) {
+        _dismissAndClean();
+        return;
+      }
+      opts.onSelect(root);
       _dismissAndClean();
     }
 
@@ -315,13 +327,13 @@ export function createBranchDropdown(opts: {
   return {
     el: trigger,
 
-    setItems(items: BranchDropdownItem[]): void {
+    setItems(items: RepoDropdownItem[]): void {
       _items = items;
       _updateLabel();
     },
 
-    setSelected(value: string | null): void {
-      _selected = value;
+    setCurrent(root: string): void {
+      _current = root;
       _updateLabel();
     },
   };

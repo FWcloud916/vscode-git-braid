@@ -64,6 +64,13 @@
           "maximum": 5000,
           "description": "Number of commits to load on initial graph open."
         },
+        "gitBraid.repoScanDepth": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 8,
+          "description": "How many directory levels below each workspace folder Git Braid scans for nested/sibling git repositories (e.g. a 'projects/' folder containing many unrelated checkouts). Set to 0 to disable the nested scan and only discover repos that are, or are subdirectories of, a workspace folder."
+        },
         "gitBraid.dateFormat": {
           "type": "string",
           "enum": [

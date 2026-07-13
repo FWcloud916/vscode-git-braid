@@ -16,7 +16,7 @@
  *   `{ type: "batch", payload: ArrayBuffer }` — BRAI v2 binary batch
  *   `{ type: "commitDetail", detail: CommitDetail }` — single commit full detail
  *   `{ type: "findResults", query, matches }` — full-history search results
- *   `{ type: "config", dateFormat, palette, branches, currentBranch }` — display settings
+ *   `{ type: "config", dateFormat, palette, branches, currentBranch, repos, currentRepo }` — display settings
  *   `{ type: "reload" }` — clear rows and re-request from offset 0 (after write op)
  *   `{ type: "error", message: string }`
  *
@@ -30,6 +30,7 @@
  *   `{ type: "setFilter", includeRemotes: boolean, branch: string | null }` — graph filter
  *   `{ type: "fetch" }` — run `git fetch --all --prune`
  *   `{ type: "refresh" }` — reload graph from current repo state
+ *   `{ type: "selectRepo", root: string }` — user picked a different repo in the toolbar dropdown
  */
 
 import * as path from "path";
@@ -108,17 +109,29 @@ type WebviewMessage =
   | { type: "copy"; field: "hash" | "shortHash" | "subject" | "message"; oid: string }
   | { type: "setFilter"; includeRemotes: boolean; branch: string | null }
   | { type: "fetch" }
-  | { type: "refresh" };
+  | { type: "refresh" }
+  | { type: "selectRepo"; root: string };
 
 /** A branch entry sent in the `config` message for the toolbar switcher. */
 interface BranchEntry { name: string; kind: number; isCurrent: boolean }
+
+/** A repo entry sent in the `config` message for the toolbar repo dropdown. */
+interface RepoEntry { root: string; name: string }
 
 /** Messages the extension host can send to the webview. */
 type HostMessage =
   | { type: "batch"; payload: ArrayBuffer }
   | { type: "commitDetail"; detail: CommitDetail }
   | { type: "findResults"; query: string; matches: FindMatch[] }
-  | { type: "config"; dateFormat: string; palette: string[]; branches: BranchEntry[]; currentBranch: string | null }
+  | {
+      type: "config";
+      dateFormat: string;
+      palette: string[];
+      branches: BranchEntry[];
+      currentBranch: string | null;
+      repos: RepoEntry[];
+      currentRepo: string;
+    }
   | { type: "reload" }
   | { type: "actionResult"; op: string; ok: boolean; message?: string }
   | { type: "error"; message: string };
@@ -144,6 +157,10 @@ export class WebviewBridge implements vscode.Disposable {
   constructor(
     context: vscode.ExtensionContext,
     private readonly _repoPath: string,
+    /** All repos discovered in the current workspace, for the toolbar dropdown. */
+    private readonly _repos: string[],
+    /** Called when the webview's in-panel repo dropdown picks a different repo. */
+    private readonly _onSelectRepo: (root: string) => void,
     private readonly _onDispose: () => void,
   ) {
     this._panel = vscode.window.createWebviewPanel(
@@ -302,6 +319,9 @@ export class WebviewBridge implements vscode.Disposable {
       case "fetch":
         void this._handleFetch();
         break;
+      case "selectRepo":
+        this._onSelectRepo(message.root);
+        break;
     }
   }
 
@@ -348,7 +368,20 @@ export class WebviewBridge implements vscode.Disposable {
       // ignore — non-fatal; toolbar will just show "All branches" with no list
     }
 
-    await this._postMessage({ type: "config", dateFormat, palette, branches, currentBranch });
+    const repos: RepoEntry[] = this._repos.map((root) => ({
+      root,
+      name: path.basename(root),
+    }));
+
+    await this._postMessage({
+      type: "config",
+      dateFormat,
+      palette,
+      branches,
+      currentBranch,
+      repos,
+      currentRepo: this._repoPath,
+    });
   }
 
   /** Send the initial batch on `ready`, using the configured commit load size. */

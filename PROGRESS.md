@@ -4,7 +4,34 @@
 
 ---
 
-## Current milestone: Stable release pipeline (v0.2.0)
+## Current milestone: Multi-repo workspace + in-panel repo switcher
+
+**Goal:** Discover every git repo nested inside an open workspace folder (e.g. a
+`projects/` folder containing many unrelated sibling checkouts — previously
+undiscoverable, per `docs/adr/0006` §"Known limitation"), and let the user switch
+which repo is displayed from an in-panel toolbar dropdown, not just the existing
+command-palette picker.
+
+**Status:** ✅ Done
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `src/repoScan.ts` (new) — `collectRepoRoots`, `isRepoRoot`, `listChildDirs` | ✅ | Pure/dependency-injected bounded-depth scan; no `vscode` import (mirrors `ai/releaseNotes.ts` convention) |
+| `src/repoScan.test.ts` (new) — 8 vitest tests | ✅ | Stubbed in-memory tree; depth cap, stop-at-repo, dedup, empty-result coverage |
+| `src/extension.ts` — `resolveRepos()` now async, adds downward scan alongside the existing upward `discoverRepo` walk; `openRepo()` takes `repos`/switch-callback | ✅ | Both passes deduped; `gitBraid.openGraph`/`selectRepo` pass their already-resolved list to avoid a redundant re-scan |
+| `src/ai/releaseNotesCommand.ts` — awaits the now-async `resolveRepos` | ✅ | No behavioural change beyond awaiting |
+| `package.json` — `gitBraid.repoScanDepth` setting (default 2, 0–8) | ✅ | 0 disables the downward scan (pre-ADR-0007 behaviour) |
+| `src/webviewBridge.ts` — constructor gains `repos`/`onSelectRepo`; `config` message gains `repos`/`currentRepo`; new `selectRepo` webview→host message | ✅ | `selectRepo` handler just calls the same switch callback `extension.ts` wires to `openRepo()` |
+| `web/ui/repoDropdown.ts` (new) — searchable repo dropdown, modeled on `branchDropdown.ts` | ✅ | No "Show All"/kind logic; `✓` marks current repo; full path shown as description + tooltip |
+| `web/index.ts` — wired `createRepoDropdown` leftmost in the toolbar; `config` handler populates it | ✅ | Selecting posts `{ type: "selectRepo", root }`; host recreates the panel (ADR 0006 §2, reused as-is) |
+| `docs/adr/0007-nested-repo-scan.md` (new) | ✅ | Records the bounded-depth scan + dropdown decisions, supersedes ADR 0006's deferral |
+
+**Not touched:** `crates/core/**`, `bindings/napi/**` — the native core is fully
+stateless (path-per-call), so no Rust/napi changes were needed.
+
+---
+
+## Previous milestone: Stable release pipeline (v0.2.0)
 
 **Goal:** Enable official (stable) Marketplace releases. Previously all `v*` tags forced `--pre-release`. Tag shape now determines the channel.
 
@@ -291,4 +318,4 @@ Git Graph + VS Code built-in, stop here.
 
 ---
 
-_Updated: 2026-06-23 · Graph toolbar complete — merged ref chips, kind icons, branch/remote filter, fetch, auto-refresh, searchable branch dropdown_
+_Updated: 2026-07-13 · Multi-repo workspace scan + in-panel repo switcher complete_

@@ -36,7 +36,7 @@ const SECRET_KEY = (provider: string) => `gitBraid.ai.apiKey.${provider}`;
  */
 export async function runReleaseNotesCommand(
   context: vscode.ExtensionContext,
-  resolveRepos: () => string[],
+  resolveRepos: () => Promise<string[]>,
   pickRepo: (repos: string[]) => Promise<string | undefined>,
 ): Promise<void> {
   // ── 1. Opt-in gate ────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export async function runReleaseNotesCommand(
   }
 
   // ── 2. Repo pick ──────────────────────────────────────────────────────────
-  const repos = resolveRepos();
+  const repos = await resolveRepos();
   if (repos.length === 0) {
     void vscode.window.showErrorMessage(
       "Git Braid: No git repository found in the open workspace folders.",
